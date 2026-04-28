@@ -10,22 +10,46 @@ def fetch_wos_alert_with_browser(
     timeout_ms: int = 30000,
     headless: bool = False,
 ) -> list[FetchedPaper]:
+    _prepare_playwright_runtime()
     try:
         from playwright.sync_api import sync_playwright
     except ImportError as exc:
         raise RuntimeError("缺少 playwright，请先安装 playwright 并执行 playwright install chromium。") from exc
 
-    with sync_playwright() as playwright:
-        browser = playwright.chromium.launch(headless=headless)
-        try:
-            page = browser.new_page()
-            page.goto(url, wait_until="networkidle", timeout=timeout_ms)
-            _wait_for_wos_records(page, timeout_ms=timeout_ms)
-            html = page.content()
-        finally:
-            browser.close()
+    try:
+        with sync_playwright() as playwright:
+            browser = playwright.chromium.launch(headless=headless)
+            try:
+                page = browser.new_page()
+                page.goto(url, wait_until="networkidle", timeout=timeout_ms)
+                _wait_for_wos_records(page, timeout_ms=timeout_ms)
+                html = page.content()
+            finally:
+                browser.close()
+    except NotImplementedError as exc:
+        raise RuntimeError(
+            "Playwright 启动浏览器子进程失败。若在 Streamlit/Windows 中运行，"
+            "请重启前端进程后再试；仍失败时改用命令行运行 fetch-papers 验证浏览器模式。"
+        ) from exc
 
     return parse_wos_result_page(html, source_email_id=source_email_id)
+
+
+def _prepare_playwright_runtime() -> None:
+    try:
+        import asyncio
+        import sys
+    except Exception:
+        return
+
+    policy_class = getattr(asyncio, "WindowsProactorEventLoopPolicy", None)
+    if sys.platform != "win32" or policy_class is None:
+        return
+    try:
+        if not isinstance(asyncio.get_event_loop_policy(), policy_class):
+            asyncio.set_event_loop_policy(policy_class())
+    except Exception:
+        return
 
 
 def parse_wos_result_page(html: str, source_email_id: str | None = None) -> list[FetchedPaper]:

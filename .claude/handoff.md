@@ -46,6 +46,7 @@ P2：V2 连通性增强
 - GitHub 初次上传已由用户在 PowerShell 成功完成；当前 Codex 非交互环境仍不能直接 `git push`，需要用户本地终端推送或另行配置凭据。
 - 真实邮箱联调需要前端临时填写或 `.env` 中配置 `QQ_EMAIL` 和 `QQ_EMAIL_AUTH_CODE`。
 - 浏览器模式需要安装 Playwright Python 包并执行 `playwright install chromium`；未安装时会回退到邮件正文记录并在日志中提示。
+- Windows/Streamlit 下若浏览器模式报 `NotImplementedError`，当前代码已在启动前切换 asyncio Proactor 策略；若用户仍遇到该错误，优先让用户重启 Streamlit 前端进程。
 - 协作约束：用户明确要求或批准时，Agent 可以执行联网操作；真实 API/邮箱/付费调用仍需先说明风险并保持可控。
 - 风险项：OCR 依赖（Tesseract/Poppler）在不同机器上可能缺失，需维持清晰报错提示。
 
@@ -100,5 +101,5 @@ P2：V2 连通性增强
 ## 7) 下一 Agent 第一动作（必须）
 1. 先读：`CLAUDE.md`、`.claude/spec.md`、`.claude/todo.md`、`AGENTS.md`、`skills/project_memory.md`。
 2. 用户明确要求或批准时可以执行联网命令；真实邮箱/API/付费调用前先说明风险。
-3. 根据用户反馈将验证结果写入 `.claude/worklog.md`，优先检查 `fetch_audit.json` 中浏览器扩展字段，再决定是否处理 WoS 登录态/学校 VPN 或 WoS API。
+3. 根据用户反馈将验证结果写入 `.claude/worklog.md`，优先检查 `fetch_audit.json` 中浏览器扩展字段；若不再是 `NotImplementedError`，再决定是否处理 WoS 登录态/学校 VPN 或 WoS API。
 4. 若需要同步 GitHub，而当前 Codex 环境仍无法认证，则让用户在 PowerShell 执行 `git push`。

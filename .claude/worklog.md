@@ -6,6 +6,35 @@
 
 ## 2026-04-28
 
+### 补充：修复 Windows/Streamlit 下 Playwright NotImplementedError
+
+### 做了什么
+- 浏览器模式启动 Playwright 前，在 Windows 环境下切换到 `WindowsProactorEventLoopPolicy`。
+- 对 Playwright 子进程启动阶段的 `NotImplementedError` 转换为更明确的中文运行时错误。
+- 使用本地 `data:text/html` 页面真实启动 Chromium 并验证 WoS 记录解析函数可运行。
+
+### 为什么
+- 用户真实运行审计显示 `browser_expand_last_error = "NotImplementedError: NotImplementedError()"`。
+- 这说明失败发生在浏览器子进程启动阶段，不是 WoS 页面解析阶段；Windows/Streamlit 组合下常见原因是 asyncio 事件循环策略不支持 subprocess。
+
+### 影响文件
+- .claude/spec.md
+- .claude/worklog.md
+- paper_analyzer/ingestion/wos_browser.py
+
+### 验证结果
+- 本地单元测试：`59 passed`。
+- 语法检查：`py_compile paper_analyzer/ingestion/wos_browser.py pipeline/fetch_papers.py app.py main.py` 通过。
+- 本地 Playwright 抓取函数验证：从 `data:text/html` 页面成功解析 1 篇论文。
+
+### 下一步
+- 用户重新运行前端一键周报；如果仍报 `NotImplementedError`，先重启 Streamlit 前端进程再试。
+- 如果浏览器启动成功但候选仍未扩展，查看新的 `browser_expand_last_error` 判断是否进入了 WoS 登录页/机构认证页。
+
+---
+
+## 2026-04-28
+
 ### 补充：修复浏览器扩展错误为空
 
 ### 做了什么
