@@ -28,6 +28,7 @@ def fetch_papers(
     expand_alert_pages: bool = False,
     use_browser: bool = False,
     browser_max_pages: int = 20,
+    browser_manual_login_wait_seconds: int = 0,
 ) -> list[FetchedPaper]:
     emails, email_stats = fetch_wos_emails_with_stats(
         since_date=since_date,
@@ -85,6 +86,7 @@ def fetch_papers(
                             link,
                             source_email_id=message_id,
                             max_pages=browser_max_pages,
+                            manual_login_wait_seconds=browser_manual_login_wait_seconds,
                         )
                     except Exception as exc:
                         logger.warning("浏览器模式扩展 WoS 结果失败：%s (%s)", link, exc)
@@ -132,6 +134,7 @@ def fetch_papers(
             skipped_seen_email_count=email_stats["skipped_seen_email_count"],
             skipped_non_alert_email_count=email_stats["skipped_non_alert_email_count"],
             browser_max_pages=browser_max_pages if use_browser else 0,
+            browser_manual_login_wait_seconds=browser_manual_login_wait_seconds if use_browser else 0,
             browser_expanded_paper_count=browser_expanded_paper_count,
             browser_new_unique_paper_count=browser_new_unique_paper_count,
             browser_duplicate_paper_count=browser_duplicate_paper_count,
@@ -284,6 +287,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--expand-alert-pages", action="store_true", help="进入 WoS View all 完整结果页扩展候选论文")
     parser.add_argument("--use-browser", action="store_true", help="requests 无法解析完整结果页时使用 Playwright 浏览器模式")
     parser.add_argument("--browser-max-pages", type=int, default=20, help="浏览器模式最多翻页数")
+    parser.add_argument("--browser-manual-login-wait-seconds", type=int, default=0, help="浏览器模式遇到登录页时等待人工完成登录的秒数")
     return parser.parse_args()
 
 
@@ -299,6 +303,7 @@ def main() -> None:
         expand_alert_pages=args.expand_alert_pages,
         use_browser=args.use_browser,
         browser_max_pages=args.browser_max_pages,
+        browser_manual_login_wait_seconds=args.browser_manual_login_wait_seconds,
     )
     print(f"已获取论文 {len(papers)} 篇，保存到：{args.output}")
 

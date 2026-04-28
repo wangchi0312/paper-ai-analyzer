@@ -96,6 +96,15 @@ def _render_weekly_tab(params: dict) -> None:
         expand_alert_pages = st.checkbox("进入 WoS 完整结果页扩展候选", value=True, help="尝试打开邮件里的 View all 链接，获取完整 Alert 结果；若 WoS 需要登录会自动回退到邮件内容。")
         use_browser = st.checkbox("使用浏览器模式解析 WoS 完整页", value=False, help="requests 解析不到完整结果页时启用。需要安装 playwright 和 chromium。")
         browser_max_pages = st.number_input("浏览器最多翻页数", min_value=1, max_value=50, value=20, step=1, disabled=not use_browser)
+        browser_manual_login_wait_seconds = st.number_input(
+            "手动完成 WoS/机构登录等待秒数",
+            min_value=0,
+            max_value=600,
+            value=0,
+            step=30,
+            disabled=not use_browser,
+            help="如果浏览器停在 Clarivate 或学校认证页，可设置 180-300 秒，并在弹出的 Chromium 中手动完成登录。",
+        )
         download_full_text = st.checkbox("下载全文后再深度解读", value=True)
         download_only = st.checkbox("只验证抓取和全文下载，不调用 LLM", value=False, help="用于调试候选抓取和 PDF 下载。开启后不需要填写 API Key，也不会调用模型。")
         unpaywall_email = st.text_input("Unpaywall 查询邮箱", value=email_address, help="用于查询开放获取全文，可填常用邮箱。")
@@ -148,6 +157,7 @@ def _render_weekly_tab(params: dict) -> None:
                     expand_alert_pages=expand_alert_pages,
                     use_browser=use_browser,
                     browser_max_pages=int(browser_max_pages),
+                    browser_manual_login_wait_seconds=int(browser_manual_login_wait_seconds),
                 )
                 if not fetched:
                     st.error("没有抓取到可分析的论文。请查看下方抓取审计，判断是没有扫到 WoS 邮件、邮件已处理，还是邮件解析失败。")

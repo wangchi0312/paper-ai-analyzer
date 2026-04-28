@@ -6,6 +6,49 @@
 
 ## 2026-04-28
 
+### 补充：校园网测试反馈与浏览器登录等待
+
+### 做了什么
+- 读取用户校园网手动测试后的 `data/processed/fetch_audit.json` 和 `data/processed/fetched_papers.json`。
+- 确认抓取已选中目标两封 WoS Citation Alert：
+  - `Web of Science Alert - Jagtap, Ameya D. - 2 results`
+  - `Web of Science Alert - Raissi, M. - 71 results`
+- 确认当前只得到邮件正文里的 7 篇候选，WoS 完整 AlertSummary 扩展为 0。
+- 新增浏览器模式“手动完成 WoS/机构登录等待秒数”配置：
+  - 前端一键周报可设置等待秒数。
+  - CLI `fetch-papers` / `run` 可传 `--browser-manual-login-wait-seconds`。
+  - 抓取审计写入 `browser_manual_login_wait_seconds`。
+- 浏览器打开 WoS gateway 链接时，如果遇到短暂 `net::ERR_ABORTED` 或 frame detached，不立即失败，继续等待当前页面并检查是否出现 WoS 记录或登录页。
+
+### 为什么
+- 用户测试结果显示问题已经不在“邮件选择”阶段，而在“Playwright 浏览器没有有效机构访问态/AlertSummary 跳转失败”阶段。
+- 当前自动环境和项目浏览器 profile 没有陕西师范大学机构访问态；需要支持用户在弹出的 Playwright Chromium 中手动完成学校/机构认证。
+
+### 影响文件
+- .claude/spec.md
+- .claude/worklog.md
+- .claude/handoff.md
+- app.py
+- main.py
+- pipeline/fetch_papers.py
+- paper_analyzer/data/schema.py
+- paper_analyzer/ingestion/wos_browser.py
+- tests/test_fetch_papers.py
+- tests/test_wos_browser.py
+
+### 验证结果
+- 针对性测试：`21 passed`。
+- 语法检查：`py_compile app.py main.py pipeline/fetch_papers.py paper_analyzer/ingestion/wos_browser.py paper_analyzer/data/schema.py` 通过。
+
+### 下一步
+- 用户下一轮测试时，在前端启用“使用浏览器模式解析 WoS 完整页”，并把“手动完成 WoS/机构登录等待秒数”设置为 180-300 秒。
+- 浏览器弹出后，若停在 Clarivate/学校认证/CARSI 页面，用户在该 Chromium 窗口完成机构登录；成功后 profile 会保存在 `data/browser_profiles/wos`，后续测试应复用访问态。
+- 测试完成后继续查看 `browser_new_unique_paper_count` 是否接近 66（73 篇总量减去邮件正文 7 篇，扣除重复后可能略有差异）。
+
+---
+
+## 2026-04-28
+
 ### 补充：校园网手动测试协作方式
 
 ### 做了什么

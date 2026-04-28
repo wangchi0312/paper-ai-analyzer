@@ -263,9 +263,11 @@ def test_fetch_papers_uses_browser_when_requests_expansion_empty(monkeypatch):
     monkeypatch.setattr(fetch_mod, "_fetch_alert_summary_papers", lambda url, source_email_id: [])
 
     browser_max_pages_seen = []
+    manual_login_wait_seconds_seen = []
 
-    def browser_fetch(url, source_email_id, max_pages):
+    def browser_fetch(url, source_email_id, max_pages, manual_login_wait_seconds=0):
         browser_max_pages_seen.append(max_pages)
+        manual_login_wait_seconds_seen.append(manual_login_wait_seconds)
         return [FetchedPaper(title="Browser Paper", abstract="", source_email_id=source_email_id)]
 
     monkeypatch.setattr(
@@ -279,6 +281,7 @@ def test_fetch_papers_uses_browser_when_requests_expansion_empty(monkeypatch):
         expand_alert_pages=True,
         use_browser=True,
         browser_max_pages=12,
+        browser_manual_login_wait_seconds=180,
         output_path=str(output_path),
         audit_output_path=str(audit_path),
     )
@@ -289,9 +292,11 @@ def test_fetch_papers_uses_browser_when_requests_expansion_empty(monkeypatch):
     assert audit["browser_new_unique_paper_count"] == 1
     assert audit["browser_duplicate_paper_count"] == 0
     assert audit["browser_max_pages"] == 12
+    assert audit["browser_manual_login_wait_seconds"] == 180
     assert audit["browser_expand_error_count"] == 0
     assert audit["browser_expand_last_error"] is None
     assert browser_max_pages_seen == [12]
+    assert manual_login_wait_seconds_seen == [180]
     assert audit["email_details"][0]["email_parsed_paper_count"] == 1
     assert audit["email_details"][0]["browser_expanded_paper_count"] == 1
     assert audit["email_details"][0]["browser_new_unique_paper_count"] == 1
@@ -323,7 +328,7 @@ def test_fetch_papers_counts_browser_duplicates(monkeypatch):
     monkeypatch.setattr(
         fetch_mod,
         "fetch_wos_alert_with_browser",
-        lambda url, source_email_id, max_pages: [
+        lambda url, source_email_id, max_pages, manual_login_wait_seconds=0: [
             FetchedPaper(title="Same Paper", abstract="", source_email_id=source_email_id),
         ],
     )
@@ -365,7 +370,7 @@ def test_fetch_papers_records_browser_error_type(monkeypatch):
         def __str__(self) -> str:
             return ""
 
-    def raise_empty_error(url, source_email_id, max_pages):
+    def raise_empty_error(url, source_email_id, max_pages, manual_login_wait_seconds=0):
         raise EmptyError()
 
     monkeypatch.setattr(fetch_mod, "fetch_wos_alert_with_browser", raise_empty_error)

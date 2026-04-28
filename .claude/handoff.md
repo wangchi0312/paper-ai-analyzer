@@ -27,6 +27,8 @@
 - 浏览器模式支持进程级 `CLARIVATE_EMAIL` / `CLARIVATE_PASSWORD` 自动登录 Clarivate；不得写入文件。真实联调显示个人账号登录后仍是 Free Web of Science profile，完整 AlertSummary 需要机构访问态。
 - 邮箱抓取已跳过 Clarivate 账户通知邮件，`password reset`、`password changed`、welcome 等不会占用 `max_emails` 的 Citation Alert 名额；审计记录 `skipped_non_alert_email_count`。
 - 支持只验证抓取和全文下载而不调用 LLM：CLI 使用 `--download-full-text --skip-llm`，前端勾选“只验证抓取和全文下载，不调用 LLM”；该模式不要求 API Key，不初始化 Analyzer，并尊重阈值/top-k。
+- 浏览器模式支持“手动完成 WoS/机构登录等待秒数”：前端一键周报可设置，CLI 使用 `--browser-manual-login-wait-seconds`；遇到 Clarivate/学校/CARSI 登录页时可等待用户在弹出的 Playwright Chromium 中完成认证。抓取审计记录 `browser_manual_login_wait_seconds`。
+- 浏览器打开 WoS gateway 链接时对短暂 `net::ERR_ABORTED` / frame detached 做容错，继续等待当前页面并检查记录页或登录页。
 - 抓取审计已记录 `alert_summary_link_count`、`expanded_paper_count`、`browser_expanded_paper_count`、`browser_expand_error_count`、`browser_expand_last_error`，用于判断候选扩展是否成功；浏览器错误会包含异常类型，页面无记录时会包含页面标题和当前 URL。
 - 邮件批量深度解读现在会把标题、作者、期刊/会议、DOI、链接和摘要一起给 LLM，并用邮件元数据回填基础字段，减少周报中的“未识别”。
 - `paper_analyzer/fulltext/` 已实现基础全文获取：publisher PDF 直链、Unpaywall、Semantic Scholar、arXiv 候选解析和 PDF 下载。
@@ -39,6 +41,7 @@
 P0：真实邮箱联调
 - 调试阶段优先勾选前端“只验证抓取和全文下载，不调用 LLM”，确认 `browser_new_unique_paper_count`、全文下载状态和本地 PDF 文件；稳定后再关闭该开关调用 LLM。
 - 当前协作方式：用户负责在校园网/学校 VPN 环境手动测试；Agent 不再继续处理学校机构认证登录，只在用户测试完后读取 `data/processed/fetch_audit.json`、`data/processed/fetched_papers.json` 和最新 `data/outputs/<timestamp>/results.json` / `weekly_report.md` 做反馈。
+- 最近一次用户测试已选中目标两封 Alert（2 results + 71 results），但只得到邮件正文 7 篇；`browser_expanded_paper_count=0`，说明完整 AlertSummary 页面尚未扩展成功。下一轮测试需启用浏览器模式并设置手动登录等待 180-300 秒，在弹出的 Playwright Chromium 中完成机构认证。
 - 若用户期望最近两封邮件合计 73 篇但审计只有个位数/十几篇，先检查 `email_details[*].subject` 是否是目标 Alert，再看每个 `alert_links` 的扩展数量。
 - 如果 subject 正确但浏览器错误显示 `access.clarivate.com/login` 或 `forgotpassword`，说明 Playwright profile 没有有效 WoS/Clarivate 访问态；需要让用户在弹出的 Playwright Chromium 中完成一次认证，或后续实现连接用户日常 Chrome 登录态。
 - 如果浏览器进入 Web of Science Free Profile/机构访问提示，说明 Clarivate 个人账号不足以访问完整结果；需要学校 VPN/校园网、机构名称和统一认证凭据，或复用用户已打开的具备机构访问态的浏览器。

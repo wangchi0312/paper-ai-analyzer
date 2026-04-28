@@ -20,6 +20,7 @@ def fetch_wos_alert_with_browser(
     headless: bool = False,
     max_pages: int = 20,
     browser_profile_dir: str | None = DEFAULT_BROWSER_PROFILE_DIR,
+    manual_login_wait_seconds: int = 0,
 ) -> list[FetchedPaper]:
     _prepare_playwright_runtime()
     try:
@@ -36,8 +37,12 @@ def fetch_wos_alert_with_browser(
                 )
                 try:
                     page = context.new_page()
-                    page.goto(url, wait_until="networkidle", timeout=timeout_ms)
-                    _wait_for_wos_records_or_login(page, timeout_ms=timeout_ms)
+                    _goto_wos_url(page, url, timeout_ms=timeout_ms)
+                    _wait_for_wos_records_or_login(
+                        page,
+                        timeout_ms=timeout_ms,
+                        manual_login_wait_seconds=manual_login_wait_seconds,
+                    )
                     papers = _collect_wos_records_across_pages(
                         page,
                         source_email_id=source_email_id,
@@ -50,8 +55,12 @@ def fetch_wos_alert_with_browser(
                 browser = playwright.chromium.launch(headless=headless)
                 try:
                     page = browser.new_page()
-                    page.goto(url, wait_until="networkidle", timeout=timeout_ms)
-                    _wait_for_wos_records_or_login(page, timeout_ms=timeout_ms)
+                    _goto_wos_url(page, url, timeout_ms=timeout_ms)
+                    _wait_for_wos_records_or_login(
+                        page,
+                        timeout_ms=timeout_ms,
+                        manual_login_wait_seconds=manual_login_wait_seconds,
+                    )
                     papers = _collect_wos_records_across_pages(
                         page,
                         source_email_id=source_email_id,
@@ -67,6 +76,24 @@ def fetch_wos_alert_with_browser(
         ) from exc
 
     return papers
+
+
+def _goto_wos_url(page, url: str, timeout_ms: int) -> None:
+    try:
+        page.goto(url, wait_until="networkidle", timeout=timeout_ms)
+    except Exception as exc:
+        if not _is_ignorable_navigation_abort(exc):
+            raise
+        try:
+            page.wait_for_load_state("domcontentloaded", timeout=min(timeout_ms, 10000))
+        except Exception:
+            pass
+        _wait_briefly(page)
+
+
+def _is_ignorable_navigation_abort(exc: Exception) -> bool:
+    message = str(exc)
+    return "net::ERR_ABORTED" in message or "frame was detached" in message
 
 
 def _prepare_playwright_runtime() -> None:
@@ -126,13 +153,20 @@ def _collect_wos_records_across_pages(
     return _deduplicate_by_title(papers)
 
 
-def _wait_for_wos_records_or_login(page, timeout_ms: int) -> None:
+def _wait_for_wos_records_or_login(page, timeout_ms: int, manual_login_wait_seconds: int = 0) -> None:
     try:
         _wait_for_wos_records(page, timeout_ms=timeout_ms)
         return
-    except RuntimeError:
+    except RuntimeError as wait_exc:
+        if manual_login_wait_seconds > 0:
+            try:
+                _wait_for_manual_login(page, wait_seconds=manual_login_wait_seconds)
+                return
+            except RuntimeError as manual_exc:
+                if not _is_clarivate_auth_page(page) or not _has_clarivate_credentials():
+                    raise manual_exc
         if not _is_clarivate_auth_page(page):
-            raise
+            raise wait_exc
 
     _login_to_clarivate(page, timeout_ms=timeout_ms)
     _wait_for_wos_records(page, timeout_ms=timeout_ms)
@@ -152,7 +186,10 @@ def _login_to_clarivate(page, timeout_ms: int) -> None:
     email = os.getenv(CLARIVATE_EMAIL_ENV, "").strip()
     password = os.getenv(CLARIVATE_PASSWORD_ENV, "")
     if not email or not password:
-        raise RuntimeError("Clarivate 登录页需要账号密码；请临时设置 CLARIVATE_EMAIL 和 CLARIVATE_PASSWORD。")
+        raise RuntimeError(
+            "Clarivate 登录页需要账号密码；请临时设置 CLARIVATE_EMAIL 和 CLARIVATE_PASSWORD，"
+            "或在前端/CLI 设置手动登录等待时间后，在弹出的浏览器中完成机构登录。"
+        )
 
     email_selectors = [
         "input[type='email']",
@@ -192,6 +229,22 @@ def _login_to_clarivate(page, timeout_ms: int) -> None:
     current_url = getattr(page, "url", "")
     if "forgotpassword" in current_url.lower() or "passwordexpired" in current_url.lower():
         raise RuntimeError("Clarivate 登录后要求重置密码，无法继续自动化。")
+
+
+def _has_clarivate_credentials() -> bool:
+    return bool(os.getenv(CLARIVATE_EMAIL_ENV, "").strip() and os.getenv(CLARIVATE_PASSWORD_ENV, ""))
+
+
+def _wait_for_manual_login(page, wait_seconds: int) -> None:
+    timeout_ms = max(1, wait_seconds) * 1000
+    try:
+        _wait_for_wos_records(page, timeout_ms=timeout_ms)
+        return
+    except RuntimeError as exc:
+        raise RuntimeError(
+            f"已等待 {wait_seconds} 秒，但仍未进入 WoS 记录页；"
+            "请确认已在弹出的 Playwright Chromium 中完成学校/机构认证。"
+        ) from exc
 
 
 def _fill_first_visible(page, selectors: list[str], value: str, timeout_ms: int, required: bool) -> bool:

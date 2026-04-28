@@ -1,6 +1,7 @@
 import pytest
 
 from paper_analyzer.ingestion.wos_browser import (
+    _goto_wos_url,
     _wait_for_wos_records,
     _wait_for_wos_records_or_login,
     parse_wos_result_page,
@@ -60,3 +61,49 @@ def test_clarivate_password_reset_page_stops_login(monkeypatch):
 
     with pytest.raises(RuntimeError, match="重置密码"):
         _wait_for_wos_records_or_login(FakePage(), timeout_ms=1000)
+
+
+def test_wait_for_wos_records_allows_manual_login_wait(monkeypatch):
+    monkeypatch.delenv("CLARIVATE_EMAIL", raising=False)
+    monkeypatch.delenv("CLARIVATE_PASSWORD", raising=False)
+
+    class FakePage:
+        url = "https://access.clarivate.com/login"
+
+        def __init__(self):
+            self.calls = 0
+
+        def wait_for_selector(self, selector, timeout):
+            self.calls += 1
+            if self.calls <= 4:
+                raise TimeoutError()
+
+        def title(self):
+            return "Sign in"
+
+    page = FakePage()
+
+    _wait_for_wos_records_or_login(page, timeout_ms=1000, manual_login_wait_seconds=1)
+
+    assert page.calls > 4
+
+
+def test_goto_wos_url_ignores_gateway_navigation_abort():
+    class FakePage:
+        def __init__(self):
+            self.waited = False
+
+        def goto(self, url, wait_until, timeout):
+            raise RuntimeError("Page.goto: net::ERR_ABORTED; maybe frame was detached?")
+
+        def wait_for_load_state(self, state, timeout):
+            self.waited = True
+
+        def wait_for_timeout(self, timeout):
+            pass
+
+    page = FakePage()
+
+    _goto_wos_url(page, "https://www.webofscience.com/api/gateway", timeout_ms=1000)
+
+    assert page.waited is True
