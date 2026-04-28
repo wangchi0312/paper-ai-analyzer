@@ -2,6 +2,7 @@ from contextlib import contextmanager
 import os
 from pathlib import Path
 import time
+import json
 
 import streamlit as st
 
@@ -141,7 +142,8 @@ def _render_weekly_tab(params: dict) -> None:
                     expand_alert_pages=expand_alert_pages,
                 )
                 if not fetched:
-                    st.error("没有抓取到可分析的论文。可能原因：最近邮件里没有 WoS Alert，或这些邮件已处理过。可勾选“重新扫描已处理邮件”后重试。")
+                    st.error("没有抓取到可分析的论文。请查看下方抓取审计，判断是没有扫到 WoS 邮件、邮件已处理，还是邮件解析失败。")
+                    _show_fetch_audit(DEFAULT_AUDIT)
                     return
                 output_dir = analyze_papers(
                     papers=fetched,
@@ -332,6 +334,26 @@ def _show_result(output_dir: Path) -> None:
                 file_name="weekly_report.md",
                 mime="text/markdown",
             )
+
+
+def _show_fetch_audit(audit_path: Path) -> None:
+    if not audit_path.exists():
+        st.warning("未找到抓取审计文件。")
+        return
+    try:
+        audit = json.loads(audit_path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        st.warning(f"读取抓取审计失败：{exc}")
+        return
+
+    st.subheader("抓取审计")
+    st.json(audit)
+    if audit.get("matched_wos_email_count", 0) == 0:
+        st.info("没有在扫描窗口内识别到 WoS/Clarivate 邮件。可以增大“最多检查邮件数”，或确认 WoS Alert 邮件是否在收件箱。")
+    elif audit.get("email_count", 0) == 0 and audit.get("skipped_seen_email_count", 0) > 0:
+        st.info("识别到了 WoS 邮件，但都被 seen_emails.json 过滤。请勾选“重新扫描已处理邮件”。")
+    elif audit.get("parsed_paper_count", 0) == 0:
+        st.info("已抓取 WoS 邮件 HTML，但没有解析出论文记录。可能是 WoS 邮件模板变化，需要更新解析器。")
 
 
 @contextmanager

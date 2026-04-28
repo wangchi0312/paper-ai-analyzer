@@ -78,6 +78,10 @@ class FetchAudit:
     output_path: str
     alert_summary_link_count: int = 0
     expanded_paper_count: int = 0
+    inbox_email_count: int = 0
+    checked_email_count: int = 0
+    matched_wos_email_count: int = 0
+    skipped_seen_email_count: int = 0
 
 
 @dataclass

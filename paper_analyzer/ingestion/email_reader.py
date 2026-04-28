@@ -71,11 +71,34 @@ def fetch_wos_emails(
 
     Returns list of (message_id, subject, html_body) tuples.
     """
+    emails, _stats = fetch_wos_emails_with_stats(
+        since_date=since_date,
+        max_emails=max_emails,
+        config=config,
+        seen_emails_path=seen_emails_path,
+        ignore_seen=ignore_seen,
+    )
+    return emails
+
+
+def fetch_wos_emails_with_stats(
+    since_date: str | None = None,
+    max_emails: int = 50,
+    config: EmailConfig | None = None,
+    seen_emails_path: str = "data/processed/seen_emails.json",
+    ignore_seen: bool = False,
+) -> tuple[list[tuple[str, str, str]], dict[str, int]]:
     if config is None:
         config = load_email_config()
 
     seen_path = Path(seen_emails_path)
     seen_ids = set() if ignore_seen else _load_seen_message_ids(seen_path)
+    stats = {
+        "inbox_email_count": 0,
+        "checked_email_count": 0,
+        "matched_wos_email_count": 0,
+        "skipped_seen_email_count": 0,
+    }
 
     imap = None
     try:
@@ -91,12 +114,15 @@ def fetch_wos_emails(
             raise RuntimeError("IMAP 搜索失败")
 
         all_ids = data[0].split()
+        stats["inbox_email_count"] = len(all_ids)
         logger.info("收件箱共 %d 封邮件", len(all_ids))
 
         # 先用 HEADER 粗筛
         wos_ids = []
-        # 取最近的 max_emails * 3 封来检查，避免扫描全部
-        check_ids = all_ids[-(max_emails * 3) :]
+        # WoS Alert 不一定密集出现在最近邮件里，默认扩大扫描窗口。
+        scan_limit = max(max_emails * 20, max_emails)
+        check_ids = all_ids[-min(len(all_ids), scan_limit, 2000) :]
+        stats["checked_email_count"] = len(check_ids)
 
         for mid in check_ids:
             status, msg_data = imap.fetch(mid, "(BODY[HEADER.FIELDS (SUBJECT FROM MESSAGE-ID)])")
@@ -104,10 +130,12 @@ def fetch_wos_emails(
                 continue
             header_text = msg_data[0][1].decode("utf-8", errors="replace").lower()
             if "web of science" in header_text or "clarivate" in header_text:
+                stats["matched_wos_email_count"] += 1
                 # 提取 Message-ID 检查是否已处理
                 msg_id_raw = msg_data[0][1].decode("utf-8", errors="replace")
                 msg_id_match = _extract_message_id(msg_id_raw)
                 if not ignore_seen and msg_id_match and msg_id_match in seen_ids:
+                    stats["skipped_seen_email_count"] += 1
                     logger.debug("跳过已处理邮件：%s", msg_id_match)
                     continue
                 wos_ids.append(mid)
@@ -147,7 +175,7 @@ def fetch_wos_emails(
             _save_seen_message_ids(seen_path, seen_ids)
             logger.info("已保存 %d 个已处理邮件 ID", len(new_seen_ids))
 
-        return results
+        return results, stats
 
     except Exception as exc:
         logger.error("IMAP 操作失败：%s", exc)

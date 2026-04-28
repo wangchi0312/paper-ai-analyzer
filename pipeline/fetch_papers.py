@@ -6,7 +6,7 @@ import re
 from pathlib import Path
 
 from paper_analyzer.data.schema import FetchAudit, FetchedPaper
-from paper_analyzer.ingestion.email_reader import fetch_wos_emails
+from paper_analyzer.ingestion.email_reader import fetch_wos_emails_with_stats
 from paper_analyzer.ingestion.wos_parser import enrich_from_web, extract_alert_summary_links, parse_wos_email
 from paper_analyzer.utils.logger import get_logger
 
@@ -25,7 +25,11 @@ def fetch_papers(
     ignore_seen: bool = False,
     expand_alert_pages: bool = False,
 ) -> list[FetchedPaper]:
-    emails = fetch_wos_emails(since_date=since_date, max_emails=max_emails, ignore_seen=ignore_seen)
+    emails, email_stats = fetch_wos_emails_with_stats(
+        since_date=since_date,
+        max_emails=max_emails,
+        ignore_seen=ignore_seen,
+    )
     papers: list[FetchedPaper] = []
     alert_summary_link_count = 0
     expanded_paper_count = 0
@@ -59,6 +63,10 @@ def fetch_papers(
             output_path=output_path,
             alert_summary_link_count=alert_summary_link_count,
             expanded_paper_count=expanded_paper_count,
+            inbox_email_count=email_stats["inbox_email_count"],
+            checked_email_count=email_stats["checked_email_count"],
+            matched_wos_email_count=email_stats["matched_wos_email_count"],
+            skipped_seen_email_count=email_stats["skipped_seen_email_count"],
         ),
         audit_output_path,
     )

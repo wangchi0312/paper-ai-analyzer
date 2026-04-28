@@ -6,6 +6,38 @@
 
 ## 2026-04-28
 
+### 补充：增强空抓取结果诊断
+
+### 做了什么
+- 邮件扫描窗口从 `max_emails * 3` 扩大为 `max_emails * 20`，上限 2000，降低 WoS 邮件不在最近邮件中导致漏扫的概率。
+- 新增 `fetch_wos_emails_with_stats()`，返回邮件结果和扫描统计。
+- 抓取审计新增：收件箱总数、实际检查邮件数、匹配 WoS/Clarivate header 数、因 seen 跳过数。
+- 前端一键周报在抓取结果为空时展示 `fetch_audit.json`，并根据统计给出诊断提示。
+
+### 为什么
+- 用户已勾选“重新扫描已处理邮件”后仍提示“没有抓取到可分析的论文”，说明需要排查更早的邮箱扫描/筛选阶段。
+- 旧提示只给猜测，不足以判断是扫描窗口太小、header 匹配失败、seen 过滤，还是邮件模板解析失败。
+
+### 影响文件
+- .claude/spec.md
+- .claude/worklog.md
+- app.py
+- pipeline/fetch_papers.py
+- paper_analyzer/data/schema.py
+- paper_analyzer/ingestion/email_reader.py
+- tests/test_fetch_papers.py
+
+### 验证结果
+- 本地单元测试：`55 passed`。
+- 语法检查：`py_compile app.py pipeline/fetch_papers.py paper_analyzer/ingestion/email_reader.py paper_analyzer/data/schema.py` 通过。
+
+### 下一步
+- 用户再次运行一键周报后，查看前端展示的抓取审计，定位具体为空的位置。
+
+---
+
+## 2026-04-28
+
 ### 补充：通过 WoS View all 链接扩展候选论文
 
 ### 做了什么
