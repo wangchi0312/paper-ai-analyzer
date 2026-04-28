@@ -39,6 +39,7 @@ def main() -> None:
     fetch_parser.add_argument("--output", default="data/processed/fetched_papers.json", help="抓取结果保存路径")
     fetch_parser.add_argument("--audit-output", default="data/processed/fetch_audit.json", help="抓取审计保存路径")
     fetch_parser.add_argument("--ignore-seen", action="store_true", help="重新扫描已处理过的 WoS 邮件")
+    fetch_parser.add_argument("--expand-alert-pages", action="store_true", help="进入 WoS View all 完整结果页扩展候选论文")
 
     run_parser = subparsers.add_parser("run", help="获取邮件论文并批量分析")
     run_parser.add_argument("--since", default=None, help="只获取该日期之后的邮件，格式 YYYY-MM-DD")
@@ -46,6 +47,7 @@ def main() -> None:
     run_parser.add_argument("--no-web", action="store_true", help="跳过网页补全，只使用邮件内容")
     run_parser.add_argument("--audit-output", default="data/processed/fetch_audit.json", help="抓取审计保存路径")
     run_parser.add_argument("--ignore-seen", action="store_true", help="重新扫描已处理过的 WoS 邮件")
+    run_parser.add_argument("--expand-alert-pages", action="store_true", help="进入 WoS View all 完整结果页扩展候选论文")
     run_parser.add_argument("--profile", default="data/processed/profile.npy", help="兴趣向量路径")
     run_parser.add_argument("--threshold", type=float, default=0.5, help="LLM 分析触发阈值")
     run_parser.add_argument("--provider", default=None, help="LLM provider：deepseek/siliconflow/modelscope")
@@ -120,6 +122,7 @@ def main() -> None:
             output_path=args.output,
             audit_output_path=args.audit_output,
             ignore_seen=args.ignore_seen,
+            expand_alert_pages=args.expand_alert_pages,
         )
         print(f"已获取论文 {len(papers)} 篇，保存到：{args.output}")
     elif args.command == "run":
@@ -132,6 +135,7 @@ def main() -> None:
             no_web=args.no_web,
             audit_output_path=args.audit_output,
             ignore_seen=args.ignore_seen,
+            expand_alert_pages=args.expand_alert_pages,
         )
         output_dir = analyze_papers(
             papers=papers,

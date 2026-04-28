@@ -92,6 +92,7 @@ def _render_weekly_tab(params: dict) -> None:
 
         no_web = st.checkbox("跳过网页补全，只使用邮件内容", value=True)
         ignore_seen = st.checkbox("重新扫描已处理邮件", value=False, help="调试或重复生成周报时开启。开启后不会更新 seen_emails.json。")
+        expand_alert_pages = st.checkbox("进入 WoS 完整结果页扩展候选", value=True, help="尝试打开邮件里的 View all 链接，获取完整 Alert 结果；若 WoS 需要登录会自动回退到邮件内容。")
         download_full_text = st.checkbox("下载全文后再深度解读", value=True)
         unpaywall_email = st.text_input("Unpaywall 查询邮箱", value=email_address, help="用于查询开放获取全文，可填常用邮箱。")
         push_to_feishu = st.checkbox("生成后推送到飞书", value=False)
@@ -137,6 +138,7 @@ def _render_weekly_tab(params: dict) -> None:
                     output_path=str(DEFAULT_FETCHED),
                     audit_output_path=str(DEFAULT_AUDIT),
                     ignore_seen=ignore_seen,
+                    expand_alert_pages=expand_alert_pages,
                 )
                 if not fetched:
                     st.error("没有抓取到可分析的论文。可能原因：最近邮件里没有 WoS Alert，或这些邮件已处理过。可勾选“重新扫描已处理邮件”后重试。")

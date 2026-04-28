@@ -36,6 +36,20 @@ def parse_wos_email(html: str, source_email_id: str | None = None) -> list[Fetch
     return papers
 
 
+def extract_alert_summary_links(html: str) -> list[str]:
+    soup = BeautifulSoup(html, "html.parser")
+    links: list[str] = []
+    for anchor in soup.find_all("a", href=True):
+        href = anchor.get("href", "")
+        text = anchor.get_text(" ", strip=True).lower()
+        url = _extract_wos_url(href)
+        if not url:
+            continue
+        if "destlinktype=alertsummary" in url.lower() or "view all" in text:
+            links.append(url)
+    return _deduplicate_links(links)
+
+
 def _parse_record_table(table, source_email_id: str | None = None) -> FetchedPaper | None:
     title = ""
     link = None
@@ -97,6 +111,17 @@ def _extract_wos_url(tracking_url: str) -> str | None:
         return tracking_url
 
     return None
+
+
+def _deduplicate_links(links: list[str]) -> list[str]:
+    seen: set[str] = set()
+    unique: list[str] = []
+    for link in links:
+        if link in seen:
+            continue
+        seen.add(link)
+        unique.append(link)
+    return unique
 
 
 def enrich_from_web(paper: FetchedPaper, timeout: int = 15) -> FetchedPaper:

@@ -6,6 +6,43 @@
 
 ## 2026-04-28
 
+### 补充：通过 WoS View all 链接扩展候选论文
+
+### 做了什么
+- 从 WoS Alert 邮件中提取 `View all ...` / `AlertSummary` 链接。
+- `fetch_papers()` 新增 `expand_alert_pages` 参数；开启后会尝试进入 WoS 完整结果页解析更多候选论文。
+- CLI 新增 `--expand-alert-pages`。
+- Streamlit “一键周报”新增“进入 WoS 完整结果页扩展候选”选项，默认开启。
+- 抓取审计新增 `alert_summary_link_count` 和 `expanded_paper_count`。
+
+### 为什么
+- 用户指出 WoS 邮件正文受页面展示限制，可能只展示少量文献；实际完整候选列表在 `View all` 链接后的 Web of Science 页面中。
+- 原实现只解析邮件 HTML 中直接展示的记录，会漏掉大量候选论文。
+
+### 影响文件
+- .claude/spec.md
+- .claude/worklog.md
+- app.py
+- main.py
+- pipeline/fetch_papers.py
+- paper_analyzer/data/schema.py
+- paper_analyzer/ingestion/wos_parser.py
+- tests/test_email_reader.py
+- tests/test_fetch_papers.py
+
+### 验证结果
+- 本地单元测试：`55 passed`。
+- 语法检查：`py_compile app.py main.py pipeline/fetch_papers.py paper_analyzer/ingestion/wos_parser.py` 通过。
+- 真实 WoS 完整结果页尚未验证；如果 WoS 页面需要登录或由前端渲染，requests 可能解析不到完整记录，需要后续升级为浏览器自动化或 WoS API 路径。
+
+### 下一步
+- 真实运行一键周报，检查 `fetch_audit.json` 中 `alert_summary_link_count` 与 `expanded_paper_count`。
+- 如果 `alert_summary_link_count > 0` 但 `expanded_paper_count = 0`，说明 requests 方式无法直接拿到完整结果，需要实现浏览器自动化/登录态方案。
+
+---
+
+## 2026-04-28
+
 ### 补充：飞书长周报分片发送
 
 ### 做了什么

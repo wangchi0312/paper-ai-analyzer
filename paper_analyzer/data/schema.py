@@ -76,6 +76,8 @@ class FetchAudit:
     unique_paper_count: int
     duplicate_paper_count: int
     output_path: str
+    alert_summary_link_count: int = 0
+    expanded_paper_count: int = 0
 
 
 @dataclass

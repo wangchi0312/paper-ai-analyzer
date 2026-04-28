@@ -7,7 +7,7 @@ from pathlib import Path
 
 from paper_analyzer.data.schema import FetchAudit, FetchedPaper
 from paper_analyzer.ingestion.email_reader import fetch_wos_emails
-from paper_analyzer.ingestion.wos_parser import enrich_from_web, parse_wos_email
+from paper_analyzer.ingestion.wos_parser import enrich_from_web, extract_alert_summary_links, parse_wos_email
 from paper_analyzer.utils.logger import get_logger
 
 
@@ -23,14 +23,25 @@ def fetch_papers(
     output_path: str = DEFAULT_FETCHED_PAPERS_PATH,
     audit_output_path: str = DEFAULT_FETCH_AUDIT_PATH,
     ignore_seen: bool = False,
+    expand_alert_pages: bool = False,
 ) -> list[FetchedPaper]:
     emails = fetch_wos_emails(since_date=since_date, max_emails=max_emails, ignore_seen=ignore_seen)
     papers: list[FetchedPaper] = []
+    alert_summary_link_count = 0
+    expanded_paper_count = 0
 
     for message_id, _subject, html in emails:
         parsed = parse_wos_email(html, source_email_id=message_id)
         for paper in parsed:
             papers.append(paper if no_web else _enrich_or_keep(paper))
+        if expand_alert_pages:
+            summary_links = extract_alert_summary_links(html)
+            alert_summary_link_count += len(summary_links)
+            for link in summary_links:
+                expanded = _fetch_alert_summary_papers(link, source_email_id=message_id)
+                expanded_paper_count += len(expanded)
+                for paper in expanded:
+                    papers.append(paper if no_web else _enrich_or_keep(paper))
 
     parsed_paper_count = len(papers)
     papers = deduplicate_papers(papers)
@@ -46,6 +57,8 @@ def fetch_papers(
             unique_paper_count=len(papers),
             duplicate_paper_count=parsed_paper_count - len(papers),
             output_path=output_path,
+            alert_summary_link_count=alert_summary_link_count,
+            expanded_paper_count=expanded_paper_count,
         ),
         audit_output_path,
     )
@@ -72,6 +85,35 @@ def _enrich_or_keep(paper: FetchedPaper) -> FetchedPaper:
     except Exception as exc:
         logger.warning("网页补全失败，保留邮件内容：%s (%s)", paper.title, exc)
         return paper
+
+
+def _fetch_alert_summary_papers(url: str, source_email_id: str | None = None) -> list[FetchedPaper]:
+    try:
+        import requests
+    except ImportError:
+        logger.warning("缺少 requests 包，无法扩展 WoS 完整结果页")
+        return []
+
+    try:
+        response = requests.get(
+            url,
+            headers={
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                "Accept": "text/html,application/xhtml+xml",
+                "Accept-Language": "en-US,en;q=0.9",
+            },
+            timeout=30,
+            allow_redirects=True,
+        )
+        response.raise_for_status()
+    except requests.RequestException as exc:
+        logger.warning("WoS 完整结果页请求失败：%s (%s)", url, exc)
+        return []
+
+    papers = parse_wos_email(response.text, source_email_id=source_email_id)
+    if not papers:
+        logger.warning("WoS 完整结果页未解析出论文，可能需要登录或页面为前端渲染：%s", url)
+    return papers
 
 
 def save_fetched_papers(papers: list[FetchedPaper], output_path: str = DEFAULT_FETCHED_PAPERS_PATH) -> Path:
@@ -125,6 +167,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output", default=DEFAULT_FETCHED_PAPERS_PATH, help="抓取结果保存路径")
     parser.add_argument("--audit-output", default=DEFAULT_FETCH_AUDIT_PATH, help="抓取审计保存路径")
     parser.add_argument("--ignore-seen", action="store_true", help="重新扫描已处理过的 WoS 邮件")
+    parser.add_argument("--expand-alert-pages", action="store_true", help="进入 WoS View all 完整结果页扩展候选论文")
     return parser.parse_args()
 
 
@@ -137,6 +180,7 @@ def main() -> None:
         output_path=args.output,
         audit_output_path=args.audit_output,
         ignore_seen=args.ignore_seen,
+        expand_alert_pages=args.expand_alert_pages,
     )
     print(f"已获取论文 {len(papers)} 篇，保存到：{args.output}")
 
