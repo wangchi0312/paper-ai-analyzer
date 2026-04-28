@@ -6,6 +6,39 @@
 
 ## 2026-04-28
 
+### 补充：支持只验证抓取和全文下载
+
+### 做了什么
+- `analyze_papers(download_full_text=True, skip_llm=True)` 改为仍会下载并解析全文，但不会初始化 Analyzer 或调用 LLM。
+- 下载验证模式下仍会尊重阈值和 top-k，只对允许深读的候选下载全文，避免批量下载过多 PDF。
+- Streamlit 一键周报新增“只验证抓取和全文下载，不调用 LLM”开关。
+- 前端开启该开关后不再强制要求填写 API Key。
+- 新增测试确保下载验证模式不初始化 LLM，并且尊重 top-k。
+
+### 为什么
+- 用户明确指出当前阶段只需要验证 WoS 抓取和全文下载，不应每次调用 LLM，避免慢且浪费 token/API 额度。
+- 原实现中 `--skip-llm` 会在全文下载前短路，无法满足“下载但不深读”的调试工作流。
+
+### 影响文件
+- .claude/spec.md
+- .claude/worklog.md
+- app.py
+- pipeline/analyze_papers.py
+- tests/test_analyze_fetched_papers.py
+
+### 验证结果
+- 针对性测试：`21 passed`。
+- 语法检查：`py_compile app.py main.py pipeline/analyze_papers.py pipeline/fetch_papers.py paper_analyzer/fulltext/resolver.py` 通过。
+- 未运行全量测试；本次改动只涉及抓取/全文下载/跳过 LLM 路径。
+
+### 下一步
+- 用户可在前端勾选“只验证抓取和全文下载，不调用 LLM”，先确认候选数量和 PDF 下载命中率。
+- 候选抓取与全文下载稳定后，再关闭该开关进入 LLM 深度解读和周报生成。
+
+---
+
+## 2026-04-28
+
 ### 补充：浏览器最多翻页数可配置
 
 ### 做了什么

@@ -135,6 +135,87 @@ def test_analyze_fetched_papers_skip_llm_ignores_top_k(monkeypatch):
     assert [item["skipped_reason"] for item in results] == ["用户指定跳过 LLM 分析"] * 3
 
 
+def test_analyze_fetched_papers_downloads_full_text_with_skip_llm(monkeypatch):
+    tmp_path = _make_tmp_dir("analyze_fetched_download_skip_llm")
+    profile_path = tmp_path / "profile.npy"
+    np.save(profile_path, np.array([1.0, 0.0]))
+    monkeypatch.setattr(analyze_mod, "Embedder", FakeEmbedder)
+    monkeypatch.setattr(
+        analyze_mod,
+        "resolve_full_text",
+        lambda paper, output_dir, index, unpaywall_email: FullTextResult(
+            success=True,
+            path=str(output_dir / "paper.pdf"),
+            source="test",
+            url="https://example.com/paper.pdf",
+        ),
+    )
+    monkeypatch.setattr(analyze_mod, "extract_text", lambda path: "downloaded full text")
+
+    class FailingAnalyzer:
+        def __init__(self, provider=None):
+            raise AssertionError("LLM should not be initialized")
+
+    monkeypatch.setattr(analyze_mod, "Analyzer", FailingAnalyzer)
+
+    output_dir = analyze_mod.analyze_papers(
+        papers=[FetchedPaper(title="PDF Paper", abstract="abstract")],
+        profile_path=str(profile_path),
+        threshold=0.0,
+        output_root=str(tmp_path / "outputs"),
+        download_full_text=True,
+        skip_llm=True,
+    )
+
+    results = json.loads((output_dir / "results.json").read_text(encoding="utf-8"))
+    assert results[0]["analysis"] is None
+    assert results[0]["full_text_status"] == "downloaded"
+    assert results[0]["full_text_source"] == "test"
+    assert results[0]["selected_text"] == "downloaded full text"
+    assert results[0]["skipped_reason"] == "用户指定跳过 LLM 分析"
+
+
+def test_analyze_fetched_papers_download_skip_llm_respects_top_k(monkeypatch):
+    tmp_path = _make_tmp_dir("analyze_fetched_download_skip_top_k")
+    profile_path = tmp_path / "profile.npy"
+    np.save(profile_path, np.array([1.0, 0.0]))
+    monkeypatch.setattr(analyze_mod, "Embedder", RankedFakeEmbedder)
+
+    downloaded_titles = []
+
+    def fake_resolve_full_text(paper, output_dir, index, unpaywall_email):
+        downloaded_titles.append(paper.title)
+        return FullTextResult(
+            success=True,
+            path=str(output_dir / f"{index}.pdf"),
+            source="test",
+            url="https://example.com/paper.pdf",
+        )
+
+    monkeypatch.setattr(analyze_mod, "resolve_full_text", fake_resolve_full_text)
+    monkeypatch.setattr(analyze_mod, "extract_text", lambda path: "downloaded full text")
+
+    output_dir = analyze_mod.analyze_papers(
+        papers=[
+            FetchedPaper(title="Top 1", abstract="top one"),
+            FetchedPaper(title="Top 2", abstract="top two"),
+            FetchedPaper(title="Top 3", abstract="top three"),
+        ],
+        profile_path=str(profile_path),
+        threshold=0.0,
+        output_root=str(tmp_path / "outputs"),
+        download_full_text=True,
+        skip_llm=True,
+        top_k=1,
+    )
+
+    results = json.loads((output_dir / "results.json").read_text(encoding="utf-8"))
+    assert downloaded_titles == ["Top 1"]
+    assert results[0]["full_text_status"] == "downloaded"
+    assert results[1]["skipped_reason"] == "相似度 0.8000 达到阈值，但未进入 top-1"
+    assert results[2]["skipped_reason"] == "相似度 0.6000 达到阈值，但未进入 top-1"
+
+
 def test_analyze_fetched_papers_top_k_limits_llm(monkeypatch):
     tmp_path = _make_tmp_dir("analyze_fetched_top_k")
     profile_path = tmp_path / "profile.npy"

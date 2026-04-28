@@ -81,6 +81,7 @@ V2.2 全文获取与深度解读目标：
 7. 只有成功获取全文的论文进入深度解读；未获取全文的论文进入“候选但未深读”列表，并给出获取失败原因。
 8. 周报中的“深度解读”必须基于全文，邮件摘要仅可作为候选筛选和补充元数据。
 9. 非 top-k 候选论文不保存全文；临时下载失败文件和中间缓存默认在本次任务结束后清理。已用于周报的 top-k 全文默认保留，便于用户复查。
+10. 支持“只验证抓取与全文下载，不调用 LLM”的调试路径：`--download-full-text --skip-llm` 应对达到阈值且进入 top-k 的候选尝试下载和解析全文，但不得初始化 LLM client 或调用模型 API。前端一键周报也需要提供同等调试开关，开启后不要求填写 API Key。
 
 当前已落地的周报能力：
 
@@ -357,9 +358,11 @@ D:\software\anaconda\envs\paper-ai\python.exe main.py analyze --source fetch --t
 3. 对每篇论文优先使用 abstract；abstract 为空时使用标题。
 4. 批量生成 embedding 并计算 cosine similarity。
 5. 低于阈值的论文标记跳过原因。
-6. 达到阈值且未指定 `--skip-llm` 时逐篇调用 LLM。
-7. 如果传入 `--top-k`，只有相似度最高的前 N 篇允许触发 LLM；其他高于阈值但不在 top-k 的论文标记为“未进入 top-k”。
-8. 调用统一 report writer 输出 JSON 与 Markdown。
+6. 达到阈值且开启 `--download-full-text` 时，对允许深读的候选先尝试下载和解析全文。
+7. 达到阈值且未指定 `--skip-llm` 时逐篇调用 LLM。
+8. 如果传入 `--top-k`，只有相似度最高的前 N 篇允许触发全文下载或 LLM；其他高于阈值但不在 top-k 的论文标记为“未进入 top-k”。
+9. 如果同时传入 `--download-full-text --skip-llm`，只执行候选筛选、全文下载和 PDF 文本提取，不调用 LLM。
+10. 调用统一 report writer 输出 JSON 与 Markdown。
 
 ### 全流程串联 [V2]
 

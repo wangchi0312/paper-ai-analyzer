@@ -70,11 +70,11 @@ def analyze_papers(
             source_email_id=fetched.source_email_id,
         )
 
+        should_limit_to_top_k = top_k is not None and (download_full_text or not skip_llm)
+
         if score < threshold:
             paper.skipped_reason = f"相似度 {score:.4f} 低于阈值 {threshold:.4f}"
-        elif skip_llm:
-            paper.skipped_reason = "用户指定跳过 LLM 分析"
-        elif top_k is not None and index not in llm_allowed_indexes:
+        elif should_limit_to_top_k and index not in llm_allowed_indexes:
             paper.skipped_reason = f"相似度 {score:.4f} 达到阈值，但未进入 top-{top_k}"
         else:
             try:
@@ -102,6 +102,10 @@ def analyze_papers(
                     paper.full_text = full_text
                     paper.selected_text = full_text[:max_chars]
                     llm_text = full_text[:llm_max_chars]
+                if skip_llm:
+                    paper.skipped_reason = "用户指定跳过 LLM 分析"
+                    analyzed.append(paper)
+                    continue
                 if analyzer is None:
                     analyzer = Analyzer(provider=provider)
                 paper.analysis = analyzer.analyze(llm_text, research_topic=research_topic)

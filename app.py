@@ -97,6 +97,7 @@ def _render_weekly_tab(params: dict) -> None:
         use_browser = st.checkbox("使用浏览器模式解析 WoS 完整页", value=False, help="requests 解析不到完整结果页时启用。需要安装 playwright 和 chromium。")
         browser_max_pages = st.number_input("浏览器最多翻页数", min_value=1, max_value=50, value=20, step=1, disabled=not use_browser)
         download_full_text = st.checkbox("下载全文后再深度解读", value=True)
+        download_only = st.checkbox("只验证抓取和全文下载，不调用 LLM", value=False, help="用于调试候选抓取和 PDF 下载。开启后不需要填写 API Key，也不会调用模型。")
         unpaywall_email = st.text_input("Unpaywall 查询邮箱", value=email_address, help="用于查询开放获取全文，可填常用邮箱。")
         push_to_feishu = st.checkbox("生成后推送到飞书", value=False)
         feishu_webhook = ""
@@ -113,8 +114,11 @@ def _render_weekly_tab(params: dict) -> None:
     if email_provider != "QQ邮箱":
         st.error("当前版本只支持 QQ 邮箱。")
         return
-    if not api_key or not model_name or not base_url:
+    if not download_only and (not api_key or not model_name or not base_url):
         st.error("请填写完整的模型配置。")
+        return
+    if download_only and not download_full_text:
+        st.error("只验证抓取和全文下载时，需要勾选“下载全文后再深度解读”。")
         return
     if not email_address or not email_auth_code:
         st.error("请填写邮箱地址和邮箱授权码。")
@@ -157,7 +161,7 @@ def _render_weekly_tab(params: dict) -> None:
                     max_chars=params["max_chars"],
                     llm_max_chars=params["llm_max_chars"],
                     output_root=params["output_root"],
-                    skip_llm=False,
+                    skip_llm=download_only,
                     research_topic=params["research_topic"],
                     top_k=int(top_k),
                     download_full_text=download_full_text,

@@ -22,6 +22,7 @@
 - WoS Alert 邮件中的 `View all` / `AlertSummary` 链接已支持两层扩展：先用 requests 解析，解析不到时可选 Playwright 浏览器模式等待前端渲染后抽取候选论文。
 - WoS 邮件链接解析已支持异常 Clarivate 跳转链接，可从 `webofknowledge.comundefinednull...referrer/target/destparams...` 中还原真实 `alert-execution-summary` URL；无法还原的坏链接不会中断周报。
 - WoS 浏览器模式已支持滚动懒加载和可配置 Next/下一页翻页抽取；默认最多 20 页，抓取审计已区分 `browser_max_pages`、`browser_expanded_paper_count`、`browser_new_unique_paper_count`、`browser_duplicate_paper_count`。
+- 支持只验证抓取和全文下载而不调用 LLM：CLI 使用 `--download-full-text --skip-llm`，前端勾选“只验证抓取和全文下载，不调用 LLM”；该模式不要求 API Key，不初始化 Analyzer，并尊重阈值/top-k。
 - 抓取审计已记录 `alert_summary_link_count`、`expanded_paper_count`、`browser_expanded_paper_count`、`browser_expand_error_count`、`browser_expand_last_error`，用于判断候选扩展是否成功；浏览器错误会包含异常类型，页面无记录时会包含页面标题和当前 URL。
 - 邮件批量深度解读现在会把标题、作者、期刊/会议、DOI、链接和摘要一起给 LLM，并用邮件元数据回填基础字段，减少周报中的“未识别”。
 - `paper_analyzer/fulltext/` 已实现基础全文获取：publisher PDF 直链、Unpaywall、Semantic Scholar、arXiv 候选解析和 PDF 下载。
@@ -32,7 +33,7 @@
 
 ## 3) 未完成（按优先级）
 P0：真实邮箱联调
-- 勾选前端“使用浏览器模式解析 WoS 完整页”，确认 `browser_new_unique_paper_count` 是否大于 0；若新增仍在增长，可提高“浏览器最多翻页数”继续扩展。
+- 调试阶段优先勾选前端“只验证抓取和全文下载，不调用 LLM”，确认 `browser_new_unique_paper_count`、全文下载状态和本地 PDF 文件；稳定后再关闭该开关调用 LLM。
 - 在校园网/学校 VPN 环境下运行“一键周报”，检查 WoS 候选扩展、top-k 论文全文下载命中率、失败原因和飞书周报内容。
 
 P1：工程质量收口
@@ -95,8 +96,8 @@ P2：V2 连通性增强
   - 预期：生成批量 `results.json` 与 `report.md`
 - 成本受控批量 LLM：`python main.py analyze --source fetch --top-k 5`
   - 预期：只对相似度最高的 5 篇触发 LLM，其余论文仍输出分数和跳过原因
-- 测试：`pytest -q`
-  - 预期：当前为 `61 passed`
+- 针对性测试：`pytest -q tests/test_analyze_fetched_papers.py tests/test_fetch_papers.py tests/test_fulltext_resolver.py -p no:cacheprovider`
+  - 预期：当前为 `21 passed`
 - 真实 LLM 单篇分析：`python main.py analyze --pdf data/profile_pdfs/AdaptiveAF_Paper.pdf --profile data/processed/profile_codex_verify.npy --output-root data/outputs/codex_verify_llm --llm-max-chars 4000`
   - 已验证输出：`data/outputs/codex_verify_llm/20260427_191746`
 
