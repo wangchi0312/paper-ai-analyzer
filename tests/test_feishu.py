@@ -1,5 +1,5 @@
 from paper_analyzer.notification import feishu
-from paper_analyzer.notification.feishu import send_feishu_text
+from paper_analyzer.notification.feishu import send_feishu_text, split_feishu_text
 
 
 class FakeResponse:
@@ -45,3 +45,28 @@ def test_send_feishu_text_with_secret_adds_signature(monkeypatch):
     payload = calls[0]
     assert payload["timestamp"] == "123"
     assert payload["sign"]
+
+
+def test_send_feishu_text_sends_multiple_chunks(monkeypatch):
+    calls = []
+
+    def fake_post(url, json, timeout):
+        calls.append(json["content"]["text"])
+        return FakeResponse({"code": 0})
+
+    monkeypatch.setattr(feishu.requests, "post", fake_post)
+    monkeypatch.setattr(feishu, "MAX_TEXT_CHARS", 20)
+
+    send_feishu_text("https://example.com/webhook", "## A\n" + "x" * 30 + "\n## B\n" + "y" * 10)
+
+    assert len(calls) > 1
+    assert calls[0].startswith("（第 1/")
+    assert calls[-1].startswith(f"（第 {len(calls)}/{len(calls)} 部分）")
+    assert "内容过长，已截断" not in "\n".join(calls)
+
+
+def test_split_feishu_text_prefers_heading_boundaries():
+    chunks = split_feishu_text("# T\n\n## A\nshort\n\n## B\n" + "x" * 10, max_chars=20)
+
+    assert len(chunks) == 2
+    assert chunks[1].startswith("## B")
