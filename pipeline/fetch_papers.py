@@ -7,6 +7,7 @@ from pathlib import Path
 
 from paper_analyzer.data.schema import FetchAudit, FetchedPaper
 from paper_analyzer.ingestion.email_reader import fetch_wos_emails_with_stats
+from paper_analyzer.ingestion.wos_browser import fetch_wos_alert_with_browser
 from paper_analyzer.ingestion.wos_parser import enrich_from_web, extract_alert_summary_links, parse_wos_email
 from paper_analyzer.utils.logger import get_logger
 
@@ -24,6 +25,7 @@ def fetch_papers(
     audit_output_path: str = DEFAULT_FETCH_AUDIT_PATH,
     ignore_seen: bool = False,
     expand_alert_pages: bool = False,
+    use_browser: bool = False,
 ) -> list[FetchedPaper]:
     emails, email_stats = fetch_wos_emails_with_stats(
         since_date=since_date,
@@ -33,6 +35,9 @@ def fetch_papers(
     papers: list[FetchedPaper] = []
     alert_summary_link_count = 0
     expanded_paper_count = 0
+    browser_expanded_paper_count = 0
+    browser_expand_error_count = 0
+    browser_expand_last_error: str | None = None
 
     for message_id, _subject, html in emails:
         parsed = parse_wos_email(html, source_email_id=message_id)
@@ -44,6 +49,16 @@ def fetch_papers(
             for link in summary_links:
                 expanded = _fetch_alert_summary_papers(link, source_email_id=message_id)
                 expanded_paper_count += len(expanded)
+                if use_browser and not expanded:
+                    try:
+                        browser_expanded = fetch_wos_alert_with_browser(link, source_email_id=message_id)
+                    except Exception as exc:
+                        logger.warning("浏览器模式扩展 WoS 结果失败：%s (%s)", link, exc)
+                        browser_expand_error_count += 1
+                        browser_expand_last_error = str(exc)
+                        browser_expanded = []
+                    browser_expanded_paper_count += len(browser_expanded)
+                    expanded.extend(browser_expanded)
                 for paper in expanded:
                     papers.append(paper if no_web else _enrich_or_keep(paper))
 
@@ -67,6 +82,9 @@ def fetch_papers(
             checked_email_count=email_stats["checked_email_count"],
             matched_wos_email_count=email_stats["matched_wos_email_count"],
             skipped_seen_email_count=email_stats["skipped_seen_email_count"],
+            browser_expanded_paper_count=browser_expanded_paper_count,
+            browser_expand_error_count=browser_expand_error_count,
+            browser_expand_last_error=browser_expand_last_error,
         ),
         audit_output_path,
     )
@@ -176,6 +194,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--audit-output", default=DEFAULT_FETCH_AUDIT_PATH, help="抓取审计保存路径")
     parser.add_argument("--ignore-seen", action="store_true", help="重新扫描已处理过的 WoS 邮件")
     parser.add_argument("--expand-alert-pages", action="store_true", help="进入 WoS View all 完整结果页扩展候选论文")
+    parser.add_argument("--use-browser", action="store_true", help="requests 无法解析完整结果页时使用 Playwright 浏览器模式")
     return parser.parse_args()
 
 
@@ -189,6 +208,7 @@ def main() -> None:
         audit_output_path=args.audit_output,
         ignore_seen=args.ignore_seen,
         expand_alert_pages=args.expand_alert_pages,
+        use_browser=args.use_browser,
     )
     print(f"已获取论文 {len(papers)} 篇，保存到：{args.output}")
 

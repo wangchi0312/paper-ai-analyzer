@@ -82,6 +82,9 @@ class FetchAudit:
     checked_email_count: int = 0
     matched_wos_email_count: int = 0
     skipped_seen_email_count: int = 0
+    browser_expanded_paper_count: int = 0
+    browser_expand_error_count: int = 0
+    browser_expand_last_error: str | None = None
 
 
 @dataclass

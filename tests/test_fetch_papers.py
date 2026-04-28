@@ -231,3 +231,48 @@ def test_fetch_papers_expands_alert_summary_pages(monkeypatch):
     assert [paper.title for paper in papers] == ["Email Paper", "Expanded Paper"]
     assert audit["alert_summary_link_count"] == 1
     assert audit["expanded_paper_count"] == 1
+
+
+def test_fetch_papers_uses_browser_when_requests_expansion_empty(monkeypatch):
+    tmp_dir = _make_tmp_dir("fetch_browser_expand")
+    output_path = tmp_dir / "fetched.json"
+    audit_path = tmp_dir / "audit.json"
+
+    monkeypatch.setattr(
+        fetch_mod,
+        "fetch_wos_emails_with_stats",
+        lambda since_date, max_emails, ignore_seen=False: (
+            [("<1@example.com>", "Web of Science Alert", "<html>email</html>")],
+            _email_stats(1),
+        ),
+    )
+    monkeypatch.setattr(
+        fetch_mod,
+        "parse_wos_email",
+        lambda html, source_email_id: [
+            FetchedPaper(title="Email Paper", abstract="email", source_email_id=source_email_id),
+        ],
+    )
+    monkeypatch.setattr(fetch_mod, "extract_alert_summary_links", lambda html: ["https://wos.example/summary"])
+    monkeypatch.setattr(fetch_mod, "_fetch_alert_summary_papers", lambda url, source_email_id: [])
+    monkeypatch.setattr(
+        fetch_mod,
+        "fetch_wos_alert_with_browser",
+        lambda url, source_email_id: [
+            FetchedPaper(title="Browser Paper", abstract="", source_email_id=source_email_id),
+        ],
+    )
+
+    papers = fetch_mod.fetch_papers(
+        no_web=True,
+        expand_alert_pages=True,
+        use_browser=True,
+        output_path=str(output_path),
+        audit_output_path=str(audit_path),
+    )
+
+    audit = json.loads(audit_path.read_text(encoding="utf-8"))
+    assert [paper.title for paper in papers] == ["Email Paper", "Browser Paper"]
+    assert audit["browser_expanded_paper_count"] == 1
+    assert audit["browser_expand_error_count"] == 0
+    assert audit["browser_expand_last_error"] is None

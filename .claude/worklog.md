@@ -6,6 +6,45 @@
 
 ## 2026-04-28
 
+### 补充：增加 WoS 完整页浏览器解析模式
+
+### 做了什么
+- `fetch-papers`、`run` 和 Streamlit 一键周报新增可选浏览器模式。
+- 当 `View all` / `AlertSummary` 链接通过 requests 解析不到记录时，可用 Playwright 打开 WoS 页面并等待前端渲染后抽取候选论文。
+- 抓取审计新增 `browser_expanded_paper_count`、`browser_expand_error_count` 和 `browser_expand_last_error`。
+- 新增 `paper_analyzer/ingestion/wos_browser.py` 与对应单元测试。
+- 将 Playwright 声明为可选浏览器依赖。
+
+### 为什么
+- 用户真实运行审计显示 `alert_summary_link_count > 0` 但 `expanded_paper_count = 0`，说明普通 HTML 请求拿不到 WoS 完整结果页内容。
+- WoS 页面可能需要登录态、校园网认证或 JS 渲染，因此需要浏览器自动化作为下一层扩展方式。
+
+### 影响文件
+- .claude/spec.md
+- .claude/worklog.md
+- app.py
+- main.py
+- pipeline/fetch_papers.py
+- paper_analyzer/data/schema.py
+- paper_analyzer/ingestion/wos_browser.py
+- pyproject.toml
+- requirements.txt
+- tests/test_fetch_papers.py
+- tests/test_wos_browser.py
+
+### 验证结果
+- 本地单元测试：`57 passed`。
+- 语法检查：`py_compile app.py main.py pipeline/fetch_papers.py paper_analyzer/ingestion/wos_browser.py paper_analyzer/ingestion/wos_parser.py` 通过。
+
+### 下一步
+- 在用户本机安装 Playwright 和 Chromium 后，勾选“使用浏览器模式解析 WoS 完整页”真实运行。
+- 运行后检查 `fetch_audit.json` 中 `browser_expanded_paper_count` 与 `browser_expand_error_count`。
+- 如果浏览器模式仍无法扩展候选，下一步需要处理 WoS 登录态/学校 VPN 认证，或改接 WoS API。
+
+---
+
+## 2026-04-28
+
 ### 补充：增强空抓取结果诊断
 
 ### 做了什么
