@@ -6,6 +6,40 @@
 
 ## 2026-04-28
 
+### 补充：浏览器模式支持滚动和翻页抽取
+
+### 做了什么
+- 浏览器模式打开 WoS 完整页后，先滚动页面等待前端懒加载记录，再尝试点击 Next/下一页控件继续抽取。
+- 默认最多抽取 5 页，避免无限翻页。
+- 抓取审计新增 `browser_new_unique_paper_count` 和 `browser_duplicate_paper_count`，区分浏览器扩展总数、新增唯一候选和重复候选。
+- 新增测试覆盖浏览器扩展重复计数。
+
+### 为什么
+- 用户真实审计显示 `browser_expanded_paper_count=10`，但 `unique_paper_count` 仍为 21，说明浏览器扩展出的 10 篇都是邮件正文已有论文，没有带来新增候选。
+- WoS 完整结果页可能只在首屏/第一页显示少量记录，需要滚动或翻页才能拿到完整候选列表。
+
+### 影响文件
+- .claude/spec.md
+- .claude/worklog.md
+- paper_analyzer/data/schema.py
+- paper_analyzer/ingestion/wos_browser.py
+- pipeline/fetch_papers.py
+- tests/test_fetch_papers.py
+
+### 验证结果
+- 局部测试：`12 passed`。
+- 全量测试：`61 passed`。
+- 语法检查：`py_compile paper_analyzer/ingestion/wos_browser.py pipeline/fetch_papers.py paper_analyzer/data/schema.py` 通过。
+- 本地 Playwright 翻页验证：从模拟 HTML 的第一页和 Next 后新增内容中成功解析 2 篇论文。
+
+### 下一步
+- 用户重新运行一键周报后，重点检查 `browser_new_unique_paper_count` 是否大于 0。
+- 如果仍为 0，说明 WoS 页面当前只暴露邮件中已有记录，需要进一步处理 WoS 结果页的真实分页控件或接口数据。
+
+---
+
+## 2026-04-28
+
 ### 补充：修复 Clarivate 异常跳转链接导致周报失败
 
 ### 做了什么

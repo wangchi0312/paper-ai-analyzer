@@ -9,6 +9,7 @@ def fetch_wos_alert_with_browser(
     source_email_id: str | None = None,
     timeout_ms: int = 30000,
     headless: bool = False,
+    max_pages: int = 5,
 ) -> list[FetchedPaper]:
     _prepare_playwright_runtime()
     try:
@@ -23,7 +24,12 @@ def fetch_wos_alert_with_browser(
                 page = browser.new_page()
                 page.goto(url, wait_until="networkidle", timeout=timeout_ms)
                 _wait_for_wos_records(page, timeout_ms=timeout_ms)
-                html = page.content()
+                papers = _collect_wos_records_across_pages(
+                    page,
+                    source_email_id=source_email_id,
+                    timeout_ms=timeout_ms,
+                    max_pages=max_pages,
+                )
             finally:
                 browser.close()
     except NotImplementedError as exc:
@@ -32,7 +38,7 @@ def fetch_wos_alert_with_browser(
             "请重启前端进程后再试；仍失败时改用命令行运行 fetch-papers 验证浏览器模式。"
         ) from exc
 
-    return parse_wos_result_page(html, source_email_id=source_email_id)
+    return papers
 
 
 def _prepare_playwright_runtime() -> None:
@@ -74,6 +80,90 @@ def parse_wos_result_page(html: str, source_email_id: str | None = None) -> list
         )
 
     return _deduplicate_by_title(papers)
+
+
+def _collect_wos_records_across_pages(
+    page,
+    source_email_id: str | None,
+    timeout_ms: int,
+    max_pages: int,
+) -> list[FetchedPaper]:
+    papers: list[FetchedPaper] = []
+    for _ in range(max_pages):
+        _scroll_to_load_records(page)
+        papers.extend(parse_wos_result_page(page.content(), source_email_id=source_email_id))
+        if not _go_to_next_results_page(page, timeout_ms=timeout_ms):
+            break
+        _wait_for_wos_records(page, timeout_ms=timeout_ms)
+    return _deduplicate_by_title(papers)
+
+
+def _scroll_to_load_records(page, max_scrolls: int = 10, settle_ms: int = 800) -> None:
+    last_count = -1
+    stable_rounds = 0
+    for _ in range(max_scrolls):
+        try:
+            page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+            page.wait_for_timeout(settle_ms)
+            count = _record_link_count(page)
+        except Exception:
+            return
+        if count == last_count:
+            stable_rounds += 1
+        else:
+            stable_rounds = 0
+            last_count = count
+        if stable_rounds >= 2:
+            return
+
+
+def _record_link_count(page) -> int:
+    selector = "a[href*='FullRecord'], a[href*='full-record'], a[href*='WOS:'], [data-ta='summary-record-title-link']"
+    try:
+        return page.locator(selector).count()
+    except Exception:
+        return 0
+
+
+def _go_to_next_results_page(page, timeout_ms: int) -> bool:
+    selectors = [
+        "button[aria-label*='Next']:not([disabled])",
+        "a[aria-label*='Next']",
+        "button[title*='Next']:not([disabled])",
+        "a[title*='Next']",
+        "button:has-text('Next')",
+        "a:has-text('Next')",
+        "button:has-text('下一页')",
+        "a:has-text('下一页')",
+    ]
+    current_url = getattr(page, "url", "")
+    for selector in selectors:
+        try:
+            locator = page.locator(selector)
+            count = min(locator.count(), 5)
+            for index in range(count):
+                item = locator.nth(index)
+                if not item.is_visible() or not item.is_enabled():
+                    continue
+                item.click(timeout=min(timeout_ms, 5000))
+                _wait_after_navigation_or_update(page, current_url=current_url, timeout_ms=timeout_ms)
+                return True
+        except Exception:
+            continue
+    return False
+
+
+def _wait_after_navigation_or_update(page, current_url: str, timeout_ms: int) -> None:
+    try:
+        page.wait_for_load_state("networkidle", timeout=min(timeout_ms, 10000))
+    except Exception:
+        pass
+    try:
+        page.wait_for_timeout(1200)
+    except Exception:
+        pass
+    if getattr(page, "url", "") == current_url:
+        return
 
 
 def _wait_for_wos_records(page, timeout_ms: int) -> None:

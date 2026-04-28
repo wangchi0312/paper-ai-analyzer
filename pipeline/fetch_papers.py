@@ -36,6 +36,8 @@ def fetch_papers(
     alert_summary_link_count = 0
     expanded_paper_count = 0
     browser_expanded_paper_count = 0
+    browser_new_unique_paper_count = 0
+    browser_duplicate_paper_count = 0
     browser_expand_error_count = 0
     browser_expand_last_error: str | None = None
 
@@ -58,6 +60,9 @@ def fetch_papers(
                         browser_expand_last_error = _format_exception(exc)
                         browser_expanded = []
                     browser_expanded_paper_count += len(browser_expanded)
+                    new_unique, duplicate = _count_new_unique_papers(papers, browser_expanded)
+                    browser_new_unique_paper_count += new_unique
+                    browser_duplicate_paper_count += duplicate
                     expanded.extend(browser_expanded)
                 for paper in expanded:
                     papers.append(paper if no_web else _enrich_or_keep(paper))
@@ -83,6 +88,8 @@ def fetch_papers(
             matched_wos_email_count=email_stats["matched_wos_email_count"],
             skipped_seen_email_count=email_stats["skipped_seen_email_count"],
             browser_expanded_paper_count=browser_expanded_paper_count,
+            browser_new_unique_paper_count=browser_new_unique_paper_count,
+            browser_duplicate_paper_count=browser_duplicate_paper_count,
             browser_expand_error_count=browser_expand_error_count,
             browser_expand_last_error=browser_expand_last_error,
         ),
@@ -118,6 +125,23 @@ def _format_exception(exc: Exception) -> str:
     if message:
         return f"{type(exc).__name__}: {message}"
     return f"{type(exc).__name__}: {repr(exc)}"
+
+
+def _count_new_unique_papers(existing: list[FetchedPaper], candidates: list[FetchedPaper]) -> tuple[int, int]:
+    seen = {_paper_key(paper) for paper in existing if _paper_key(paper)}
+    new_unique = 0
+    duplicate = 0
+    for paper in candidates:
+        key = _paper_key(paper)
+        if not key:
+            duplicate += 1
+            continue
+        if key in seen:
+            duplicate += 1
+            continue
+        seen.add(key)
+        new_unique += 1
+    return new_unique, duplicate
 
 
 def _fetch_alert_summary_papers(url: str, source_email_id: str | None = None) -> list[FetchedPaper]:
