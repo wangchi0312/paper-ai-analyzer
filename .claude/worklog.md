@@ -6,6 +6,46 @@
 
 ## 2026-04-28
 
+### 补充：真实 WoS 登录联调与 Citation Alert 邮件筛选
+
+### 做了什么
+- 浏览器模式支持通过进程环境变量 `CLARIVATE_EMAIL` / `CLARIVATE_PASSWORD` 在 Clarivate 登录页自动登录。
+- 邮箱抓取阶段增加 Citation Alert 判定，跳过 `password reset`、`password changed`、welcome 等账户通知邮件，避免它们占用 `max_emails` 名额。
+- 抓取审计新增 `skipped_non_alert_email_count`。
+- 真实联调确认最近两封目标邮件为：
+  - `Web of Science Alert - Jagtap, Ameya D. - 2 results`
+  - `Web of Science Alert - Raissi, M. - 71 results`
+- 真实联调确认 Clarivate 个人账号可登录，但当前环境进入的是 Free Web of Science profile，WoS 页面提示需要通过机构访问，AlertSummary 无法展开完整列表。
+- 真实联调中生成的临时 HTML/截图/脚本已删除。
+
+### 为什么
+- 用户手动点击邮件可进入 WoS，但自动浏览器最初进入 Clarivate 登录页；需要区分个人账号登录、机构访问态和 Citation Alert 页面解析。
+- 真实邮箱中新增的 Clarivate 账户通知邮件会干扰“最近 N 封 Alert”选择，导致 `max_emails=2` 选错邮件。
+
+### 影响文件
+- .claude/spec.md
+- .claude/worklog.md
+- paper_analyzer/data/schema.py
+- paper_analyzer/ingestion/email_reader.py
+- paper_analyzer/ingestion/wos_browser.py
+- pipeline/fetch_papers.py
+- tests/test_email_reader.py
+- tests/test_fetch_papers.py
+- tests/test_wos_browser.py
+
+### 验证结果
+- 抓取/浏览器针对性测试：`19 passed`。
+- 语法检查：`py_compile paper_analyzer/ingestion/email_reader.py paper_analyzer/ingestion/wos_browser.py pipeline/fetch_papers.py paper_analyzer/data/schema.py` 通过。
+- 真实抓取不调用 LLM：邮箱登录成功，跳过非 Citation Alert 邮件，选中目标 2 封 Alert；但因缺机构访问态，浏览器停在 Free Profile/机构访问提示，未取得 73 条完整候选。
+
+### 下一步
+- 需要用户提供学校/机构访问方式：机构名称、学校统一认证账号密码，或先连接学校 VPN/校园网。
+- 如果用户日常浏览器已经具备机构访问态，可实现连接用户已打开 Chrome 调试端口，复用日常浏览器会话。
+
+---
+
+## 2026-04-28
+
 ### 补充：浏览器登录态持久化与审计脱敏
 
 ### 做了什么

@@ -116,6 +116,8 @@ V2 最小闭环继续保持 KISS 原则，先实现可测试的 CLI 流程：
 14. 浏览器模式不应只抽取 WoS 完整页首屏记录；解析前需要尝试滚动加载，并在存在下一页控件时翻页抽取。浏览器最多翻页数需要在前端和 CLI 中可配置，并写入抓取审计。抓取审计需要区分浏览器扩展的总记录数、新增唯一记录数和重复记录数，避免“扩展成功但没有新增候选”被误判。
 15. 当用户期望最近 N 封 WoS Alert 对应固定候选总数时，抓取审计需要提供逐封邮件和逐个 Alert 链接的解析明细：邮件主题、邮件正文解析数、AlertSummary 链接数、requests 扩展数、浏览器扩展数、新增唯一数、重复数和错误数。审计不得保存完整带 session 的 WoS URL，只保存域名和路径级摘要。
 16. Playwright 浏览器模式需要默认使用项目本地持久 profile，以便复用 WoS/Clarivate/机构认证状态；profile 目录必须加入 `.gitignore`，不得提交 cookie、localStorage 或浏览器缓存。所有浏览器错误写入审计前必须脱敏，只保留 URL 的域名和路径，不保存 query、邮箱、sid、loginId 等参数。
+17. 当 Playwright 进入 Clarivate 登录页时，允许使用仅存在于当前进程环境变量中的 `CLARIVATE_EMAIL` 和 `CLARIVATE_PASSWORD` 自动登录。账号密码不得写入文件、日志、审计或提交；若页面要求改密码、验证码或学校统一认证，应停止自动化并提示需要用户人工完成。
+18. 邮箱抓取阶段必须区分 WoS Citation Alert 和 Clarivate 账户通知邮件。`password reset`、`password changed` 等账户邮件即使来自 Web of Science/Clarivate，也不能占用 `max_emails` 的 Citation Alert 名额；抓取审计需要记录跳过的非 Alert 邮件数量。
 
 后续版本暂缓需求：
 

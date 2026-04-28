@@ -130,6 +130,7 @@ def fetch_papers(
             checked_email_count=email_stats["checked_email_count"],
             matched_wos_email_count=email_stats["matched_wos_email_count"],
             skipped_seen_email_count=email_stats["skipped_seen_email_count"],
+            skipped_non_alert_email_count=email_stats["skipped_non_alert_email_count"],
             browser_max_pages=browser_max_pages if use_browser else 0,
             browser_expanded_paper_count=browser_expanded_paper_count,
             browser_new_unique_paper_count=browser_new_unique_paper_count,

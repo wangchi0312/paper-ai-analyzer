@@ -98,6 +98,7 @@ def fetch_wos_emails_with_stats(
         "checked_email_count": 0,
         "matched_wos_email_count": 0,
         "skipped_seen_email_count": 0,
+        "skipped_non_alert_email_count": 0,
     }
 
     imap = None
@@ -142,13 +143,12 @@ def fetch_wos_emails_with_stats(
 
         logger.info("找到 %d 封未处理的 WoS 邮件", len(wos_ids))
 
-        # 只取最近 max_emails 封
-        wos_ids = wos_ids[-max_emails:]
-
         results = []
         new_seen_ids = set()
 
-        for mid in wos_ids:
+        for mid in reversed(wos_ids):
+            if len(results) >= max_emails:
+                break
             status, msg_data = imap.fetch(mid, "(RFC822)")
             if status != "OK":
                 logger.warning("获取邮件 %s 失败", mid)
@@ -161,13 +161,18 @@ def fetch_wos_emails_with_stats(
             message_id = msg.get("Message-ID", "")
             html = _get_html_body(msg)
 
-            if html:
-                results.append((message_id, subject, html))
-                if message_id:
-                    new_seen_ids.add(message_id)
-                logger.info("获取邮件：%s", subject[:60])
-            else:
+            if not html:
                 logger.warning("邮件无 HTML 正文：%s", subject[:60])
+                continue
+            if not _looks_like_wos_alert_email(subject, html):
+                stats["skipped_non_alert_email_count"] += 1
+                logger.info("跳过非 Citation Alert 邮件：%s", subject[:60])
+                continue
+
+            results.append((message_id, subject, html))
+            if message_id:
+                new_seen_ids.add(message_id)
+            logger.info("获取邮件：%s", subject[:60])
 
         # 保存已处理邮件 ID
         if new_seen_ids and not ignore_seen:
@@ -193,3 +198,17 @@ def _extract_message_id(header_text: str) -> str | None:
 
     match = re.search(r"Message-ID:\s*(<[^>]+>)", header_text, re.IGNORECASE)
     return match.group(1) if match else None
+
+
+def _looks_like_wos_alert_email(subject: str, html: str) -> bool:
+    lowered_subject = subject.lower()
+    lowered_html = html.lower()
+    if "password reset" in lowered_subject or "password changed" in lowered_subject:
+        return False
+    alert_markers = [
+        "alert-record-container",
+        "destlinktype=alertsummary",
+        "alert-execution-summary",
+        "view all",
+    ]
+    return any(marker in lowered_html for marker in alert_markers)

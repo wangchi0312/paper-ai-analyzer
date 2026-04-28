@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -8,6 +9,8 @@ from paper_analyzer.ingestion.wos_parser import _extract_wos_url
 
 
 DEFAULT_BROWSER_PROFILE_DIR = "data/browser_profiles/wos"
+CLARIVATE_EMAIL_ENV = "CLARIVATE_EMAIL"
+CLARIVATE_PASSWORD_ENV = "CLARIVATE_PASSWORD"
 
 
 def fetch_wos_alert_with_browser(
@@ -34,7 +37,7 @@ def fetch_wos_alert_with_browser(
                 try:
                     page = context.new_page()
                     page.goto(url, wait_until="networkidle", timeout=timeout_ms)
-                    _wait_for_wos_records(page, timeout_ms=timeout_ms)
+                    _wait_for_wos_records_or_login(page, timeout_ms=timeout_ms)
                     papers = _collect_wos_records_across_pages(
                         page,
                         source_email_id=source_email_id,
@@ -48,7 +51,7 @@ def fetch_wos_alert_with_browser(
                 try:
                     page = browser.new_page()
                     page.goto(url, wait_until="networkidle", timeout=timeout_ms)
-                    _wait_for_wos_records(page, timeout_ms=timeout_ms)
+                    _wait_for_wos_records_or_login(page, timeout_ms=timeout_ms)
                     papers = _collect_wos_records_across_pages(
                         page,
                         source_email_id=source_email_id,
@@ -121,6 +124,117 @@ def _collect_wos_records_across_pages(
             break
         _wait_for_wos_records(page, timeout_ms=timeout_ms)
     return _deduplicate_by_title(papers)
+
+
+def _wait_for_wos_records_or_login(page, timeout_ms: int) -> None:
+    try:
+        _wait_for_wos_records(page, timeout_ms=timeout_ms)
+        return
+    except RuntimeError:
+        if not _is_clarivate_auth_page(page):
+            raise
+
+    _login_to_clarivate(page, timeout_ms=timeout_ms)
+    _wait_for_wos_records(page, timeout_ms=timeout_ms)
+
+
+def _is_clarivate_auth_page(page) -> bool:
+    parsed = urlparse(getattr(page, "url", ""))
+    return parsed.netloc.lower() == "access.clarivate.com"
+
+
+def _login_to_clarivate(page, timeout_ms: int) -> None:
+    current_url = getattr(page, "url", "")
+    parsed = urlparse(current_url)
+    if "forgotpassword" in parsed.path.lower() or "passwordexpired" in current_url.lower():
+        raise RuntimeError("Clarivate 要求重置密码，无法自动登录；请先人工完成密码更新。")
+
+    email = os.getenv(CLARIVATE_EMAIL_ENV, "").strip()
+    password = os.getenv(CLARIVATE_PASSWORD_ENV, "")
+    if not email or not password:
+        raise RuntimeError("Clarivate 登录页需要账号密码；请临时设置 CLARIVATE_EMAIL 和 CLARIVATE_PASSWORD。")
+
+    email_selectors = [
+        "input[type='email']",
+        "input[name='email']",
+        "input[name='username']",
+        "input#username",
+        "input#email",
+    ]
+    password_selectors = [
+        "input[type='password']",
+        "input[name='password']",
+        "input#password",
+    ]
+    continue_selectors = [
+        "button:has-text('Continue')",
+        "button:has-text('Next')",
+        "button:has-text('继续')",
+        "button:has-text('下一步')",
+        "input[type='submit']",
+    ]
+    submit_selectors = [
+        "button:has-text('Sign in')",
+        "button:has-text('Log in')",
+        "button:has-text('Login')",
+        "button:has-text('登录')",
+        "input[type='submit']",
+    ]
+
+    _fill_first_visible(page, email_selectors, email, timeout_ms=timeout_ms, required=False)
+    _click_first_visible(page, continue_selectors, timeout_ms=timeout_ms, required=False)
+    _wait_briefly(page)
+    _fill_first_visible(page, password_selectors, password, timeout_ms=timeout_ms, required=True)
+    if not _click_first_visible(page, submit_selectors, timeout_ms=timeout_ms, required=False):
+        page.keyboard.press("Enter")
+    _wait_after_navigation_or_update(page, current_url=current_url, timeout_ms=timeout_ms)
+
+    current_url = getattr(page, "url", "")
+    if "forgotpassword" in current_url.lower() or "passwordexpired" in current_url.lower():
+        raise RuntimeError("Clarivate 登录后要求重置密码，无法继续自动化。")
+
+
+def _fill_first_visible(page, selectors: list[str], value: str, timeout_ms: int, required: bool) -> bool:
+    for selector in selectors:
+        try:
+            locator = page.locator(selector)
+            count = min(locator.count(), 5)
+            for index in range(count):
+                item = locator.nth(index)
+                if not item.is_visible() or not item.is_enabled():
+                    continue
+                item.fill(value, timeout=min(timeout_ms, 5000))
+                return True
+        except Exception:
+            continue
+    if required:
+        raise RuntimeError("Clarivate 登录页未找到可填写的密码输入框。")
+    return False
+
+
+def _click_first_visible(page, selectors: list[str], timeout_ms: int, required: bool) -> bool:
+    for selector in selectors:
+        try:
+            locator = page.locator(selector)
+            count = min(locator.count(), 5)
+            for index in range(count):
+                item = locator.nth(index)
+                if not item.is_visible() or not item.is_enabled():
+                    continue
+                item.click(timeout=min(timeout_ms, 5000))
+                return True
+        except Exception:
+            continue
+    if required:
+        raise RuntimeError("Clarivate 登录页未找到可点击的提交按钮。")
+    return False
+
+
+def _wait_briefly(page) -> None:
+    try:
+        page.wait_for_timeout(1000)
+    except Exception:
+        pass
 
 
 def _scroll_to_load_records(page, max_scrolls: int = 10, settle_ms: int = 800) -> None:

@@ -21,6 +21,7 @@ def _email_stats(count: int) -> dict[str, int]:
         "checked_email_count": count,
         "matched_wos_email_count": count,
         "skipped_seen_email_count": 0,
+        "skipped_non_alert_email_count": 0,
     }
 
 

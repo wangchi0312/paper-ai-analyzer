@@ -1,6 +1,10 @@
 import pytest
 
-from paper_analyzer.ingestion.wos_browser import _wait_for_wos_records, parse_wos_result_page
+from paper_analyzer.ingestion.wos_browser import (
+    _wait_for_wos_records,
+    _wait_for_wos_records_or_login,
+    parse_wos_result_page,
+)
 
 
 def test_parse_wos_result_page_extracts_record_links():
@@ -39,3 +43,20 @@ def test_wait_for_wos_records_reports_login_or_empty_page():
     assert "access.clarivate.com/login" in message
     assert "user@example.com" not in message
     assert "sid=secret" not in message
+
+
+def test_clarivate_password_reset_page_stops_login(monkeypatch):
+    monkeypatch.setenv("CLARIVATE_EMAIL", "user@example.com")
+    monkeypatch.setenv("CLARIVATE_PASSWORD", "secret")
+
+    class FakePage:
+        url = "https://access.clarivate.com/forgotpassword?loginId=user@example.com&passwordExpired=expired"
+
+        def wait_for_selector(self, selector, timeout):
+            raise TimeoutError()
+
+        def title(self):
+            return "Clarivate"
+
+    with pytest.raises(RuntimeError, match="重置密码"):
+        _wait_for_wos_records_or_login(FakePage(), timeout_ms=1000)

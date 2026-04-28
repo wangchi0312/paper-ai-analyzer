@@ -1,6 +1,6 @@
 from email.message import EmailMessage
 
-from paper_analyzer.ingestion.email_reader import _get_html_body
+from paper_analyzer.ingestion.email_reader import _get_html_body, _looks_like_wos_alert_email
 from paper_analyzer.ingestion.wos_parser import extract_alert_summary_links
 
 
@@ -35,3 +35,25 @@ def test_extract_alert_summary_links_from_malformed_clarivate_redirect():
     assert links == [
         "https://webofscience.clarivate.cn/wos/woscc/alert-execution-summary/1aff1f25-0321-4814-a4e4-f9d2167b2c12?alertutfieldname=data1"
     ]
+
+
+def test_wos_alert_email_filter_skips_account_notifications():
+    assert not _looks_like_wos_alert_email(
+        "Web of Science password changed",
+        "<html>Your password changed</html>",
+    )
+    assert not _looks_like_wos_alert_email(
+        "Web of Science password reset",
+        "<html>Reset your password</html>",
+    )
+
+
+def test_wos_alert_email_filter_accepts_citation_alert():
+    assert _looks_like_wos_alert_email(
+        "Web of Science Alert - Raissi, M. - 71 results",
+        "<html><table id='alert-record-container'></table></html>",
+    )
+    assert _looks_like_wos_alert_email(
+        "Web of Science Alert",
+        "<a href='https://www.webofscience.com/api/gateway?DestLinkType=AlertSummary'>View all</a>",
+    )

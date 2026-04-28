@@ -82,6 +82,7 @@ class FetchAudit:
     checked_email_count: int = 0
     matched_wos_email_count: int = 0
     skipped_seen_email_count: int = 0
+    skipped_non_alert_email_count: int = 0
     browser_max_pages: int = 0
     browser_expanded_paper_count: int = 0
     browser_new_unique_paper_count: int = 0
