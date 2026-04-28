@@ -6,6 +6,37 @@
 
 ## 2026-04-28
 
+### 补充：修复 Clarivate 异常跳转链接导致周报失败
+
+### 做了什么
+- 增强 WoS 邮件链接解析，支持从 `www.webofknowledge.comundefinednull...referrer=target=...` 这类异常 Clarivate 跳转链接中提取真实 `alert-execution-summary` URL。
+- 允许 `webofscience.clarivate.cn` 作为合法 WoS 域名。
+- 对无法还原的异常链接返回 `None`，避免坏链接进入 requests 或 Playwright。
+- WoS 完整页 requests 扩展阶段改为捕获所有异常，坏链接不再中断周报流程。
+- 新增测试复现用户遇到的异常跳转链接。
+
+### 为什么
+- 用户真实运行时周报失败：`Failed to parse: 'www.webofknowledge.comundefinednull...'`。
+- 该字符串不是可访问 URL，而是 Clarivate 邮件追踪链接中嵌套目标 URL 时生成的异常跳转内容；正确目标藏在 `referrer/target/destparams` 参数里。
+
+### 影响文件
+- .claude/worklog.md
+- paper_analyzer/ingestion/wos_parser.py
+- pipeline/fetch_papers.py
+- tests/test_email_reader.py
+
+### 验证结果
+- 局部测试：`14 passed`。
+- 全量测试：`60 passed`。
+- 语法检查：`py_compile paper_analyzer/ingestion/wos_parser.py pipeline/fetch_papers.py` 通过。
+
+### 下一步
+- 用户重新运行一键周报；如果 `browser_expand_last_error` 变为登录页或机构认证页，再处理浏览器登录态。
+
+---
+
+## 2026-04-28
+
 ### 补充：修复 Windows/Streamlit 下 Playwright NotImplementedError
 
 ### 做了什么

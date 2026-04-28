@@ -1,3 +1,5 @@
+import html as html_lib
+import re
 from urllib.parse import unquote, urlparse, parse_qs
 
 from bs4 import BeautifulSoup
@@ -98,19 +100,112 @@ def _extract_wos_url(tracking_url: str) -> str | None:
     if not tracking_url:
         return None
 
+    raw_url = html_lib.unescape(tracking_url).strip()
+    candidates = [raw_url]
+
     # 解析 snowplow 追踪链接：...?u=<encoded_url>&co=...
-    parsed = urlparse(tracking_url)
+    parsed = urlparse(raw_url)
     qs = parse_qs(parsed.query)
 
-    encoded_url = qs.get("u", [None])[0]
-    if encoded_url:
-        return unquote(encoded_url)
+    for key in ("u", "target", "referrer", "url"):
+        for value in qs.get(key, []):
+            if value:
+                candidates.append(_unquote_repeated(value))
 
-    # 如果不是追踪链接，直接返回原始 URL
-    if tracking_url.startswith("https://www.webofscience.com"):
-        return tracking_url
+    for candidate in candidates:
+        alert_url = _extract_nested_alert_url(candidate)
+        if alert_url:
+            return alert_url
+        direct_url = _normalize_allowed_wos_url(candidate)
+        if direct_url:
+            return direct_url
 
     return None
+
+
+def _extract_nested_alert_url(raw_url: str) -> str | None:
+    text = _unquote_repeated(raw_url)
+
+    direct_url = _normalize_allowed_wos_url(text)
+    if direct_url:
+        dest_url = _extract_destparams_url(direct_url)
+        if dest_url:
+            return dest_url
+
+    for match in re.findall(r"https?://[^\s\"'<>]+", text):
+        nested_url = _normalize_allowed_wos_url(match.rstrip(").,;"))
+        if not nested_url:
+            continue
+        dest_url = _extract_destparams_url(nested_url)
+        if dest_url:
+            return dest_url
+        if "alert-execution-summary" in nested_url.lower():
+            return nested_url
+
+    if "alert-execution-summary" not in text.lower():
+        return None
+
+    origin = "https://www.webofscience.com"
+    origin_match = re.search(r"https?://(?:www\.)?webofscience\.com|https?://webofscience\.clarivate\.cn", text)
+    if origin_match:
+        origin = origin_match.group(0)
+
+    path_match = re.search(r"(/wos/woscc/alert-execution-summary/[A-Za-z0-9-]+(?:\?[^&\s\"'<>]+)?)", text)
+    if not path_match:
+        return None
+    return origin.rstrip("/") + path_match.group(1)
+
+
+def _extract_destparams_url(url: str) -> str | None:
+    parsed = urlparse(url)
+    qs = parse_qs(parsed.query)
+    for value in qs.get("destparams", []):
+        decoded = _unquote_repeated(value)
+        if "alert-execution-summary" not in decoded.lower():
+            continue
+        if decoded.startswith("/"):
+            return f"{parsed.scheme}://{parsed.netloc}{decoded}"
+        nested = _normalize_allowed_wos_url(decoded)
+        if nested:
+            return nested
+    return None
+
+
+def _normalize_allowed_wos_url(raw_url: str) -> str | None:
+    url = _unquote_repeated(html_lib.unescape(raw_url).strip())
+    if not url:
+        return None
+    if url.startswith("//"):
+        url = f"https:{url}"
+    if url.startswith(("www.webofscience.com", "www.webofknowledge.com", "webofscience.clarivate.cn")):
+        url = f"https://{url}"
+    if "undefinednull" in url.lower():
+        return None
+
+    parsed = urlparse(url)
+    if parsed.scheme not in {"http", "https"}:
+        return None
+    host = parsed.netloc.lower()
+    allowed_hosts = {
+        "www.webofscience.com",
+        "webofscience.com",
+        "www.webofknowledge.com",
+        "webofknowledge.com",
+        "webofscience.clarivate.cn",
+    }
+    if host not in allowed_hosts:
+        return None
+    return url
+
+
+def _unquote_repeated(value: str, max_rounds: int = 5) -> str:
+    current = value
+    for _ in range(max_rounds):
+        decoded = unquote(current)
+        if decoded == current:
+            return decoded
+        current = decoded
+    return current
 
 
 def _deduplicate_links(links: list[str]) -> list[str]:

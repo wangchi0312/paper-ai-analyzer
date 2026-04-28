@@ -20,6 +20,7 @@
 - 飞书自定义机器人 webhook 推送已实现基础文本推送，支持可选签名密钥。
 - Streamlit “一键周报”tab 可在前端填写 LLM/邮箱/飞书配置，并串联抓取、分析、生成周报和可选飞书推送；敏感配置仅在当前进程临时使用，不写入文件。
 - WoS Alert 邮件中的 `View all` / `AlertSummary` 链接已支持两层扩展：先用 requests 解析，解析不到时可选 Playwright 浏览器模式等待前端渲染后抽取候选论文。
+- WoS 邮件链接解析已支持异常 Clarivate 跳转链接，可从 `webofknowledge.comundefinednull...referrer/target/destparams...` 中还原真实 `alert-execution-summary` URL；无法还原的坏链接不会中断周报。
 - 抓取审计已记录 `alert_summary_link_count`、`expanded_paper_count`、`browser_expanded_paper_count`、`browser_expand_error_count`、`browser_expand_last_error`，用于判断候选扩展是否成功；浏览器错误会包含异常类型，页面无记录时会包含页面标题和当前 URL。
 - 邮件批量深度解读现在会把标题、作者、期刊/会议、DOI、链接和摘要一起给 LLM，并用邮件元数据回填基础字段，减少周报中的“未识别”。
 - `paper_analyzer/fulltext/` 已实现基础全文获取：publisher PDF 直链、Unpaywall、Semantic Scholar、arXiv 候选解析和 PDF 下载。
@@ -94,7 +95,7 @@ P2：V2 连通性增强
 - 成本受控批量 LLM：`python main.py analyze --source fetch --top-k 5`
   - 预期：只对相似度最高的 5 篇触发 LLM，其余论文仍输出分数和跳过原因
 - 测试：`pytest -q`
-  - 预期：当前为 `59 passed`
+  - 预期：当前为 `60 passed`
 - 真实 LLM 单篇分析：`python main.py analyze --pdf data/profile_pdfs/AdaptiveAF_Paper.pdf --profile data/processed/profile_codex_verify.npy --output-root data/outputs/codex_verify_llm --llm-max-chars 4000`
   - 已验证输出：`data/outputs/codex_verify_llm/20260427_191746`
 

@@ -139,7 +139,7 @@ def _fetch_alert_summary_papers(url: str, source_email_id: str | None = None) ->
             allow_redirects=True,
         )
         response.raise_for_status()
-    except requests.RequestException as exc:
+    except Exception as exc:
         logger.warning("WoS 完整结果页请求失败：%s (%s)", url, exc)
         return []
 
