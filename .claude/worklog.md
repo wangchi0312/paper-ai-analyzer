@@ -6,6 +6,33 @@
 
 ## 2026-04-28
 
+### 补充：校园网手动测试协作方式
+
+### 做了什么
+- 明确 WoS 完整 AlertSummary 的真实验证改为由用户在校园网/学校 VPN 环境下手动运行。
+- Agent 后续根据本地结果文件反馈，不再尝试在当前非校园网环境继续处理学校机构认证。
+- 将测试反馈入口固定为 `data/processed/fetch_audit.json`、`data/processed/fetched_papers.json` 和最新 `data/outputs/<timestamp>/results.json` / `weekly_report.md`。
+
+### 为什么
+- 当前 Codex 浏览器环境通过个人 Clarivate 账号只能进入 Free Web of Science profile，继续自动化机构认证成本高且不稳定。
+- 用户本机校园网/学校 VPN 环境更接近真实使用场景，能直接验证 WoS 73 篇候选扩展与全文下载链路。
+
+### 影响文件
+- .claude/spec.md
+- .claude/worklog.md
+- .claude/handoff.md
+
+### 验证结果
+- 仅更新协作记录，未改业务代码，未运行测试。
+
+### 下一步
+- 用户手动运行前端或 CLI，建议勾选“只验证抓取和全文下载，不调用 LLM”。
+- 用户测试完成后告知 Agent，Agent 读取本地审计和输出文件，判断候选数量、WoS 浏览器扩展、全文下载命中率和失败原因。
+
+---
+
+## 2026-04-28
+
 ### 补充：真实 WoS 登录联调与 Citation Alert 邮件筛选
 
 ### 做了什么

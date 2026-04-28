@@ -3,7 +3,7 @@
 更新时间：2026-04-28
 
 ## 1) 当前目标
-稳定推进 V2（邮件抓取与批量分析）同时保持 V1/V1.1 可用。当前已完成 V2 最小 CLI 闭环、top-k 成本控制、抓取审计、网页补全失败回退、WoS AlertSummary 链接扩展、可选 Playwright 浏览器解析模式、Streamlit 邮件批量分析入口、文献周报输出、飞书 webhook 推送基础能力、Streamlit 一键周报入口和 top-k 全文获取基础层。下一步应在校园网/学校 VPN 下真实验证 WoS 浏览器扩展与全文下载命中率。
+稳定推进 V2（邮件抓取与批量分析）同时保持 V1/V1.1 可用。当前已完成 V2 最小 CLI 闭环、top-k 成本控制、抓取审计、网页补全失败回退、WoS AlertSummary 链接扩展、可选 Playwright 浏览器解析模式、Streamlit 邮件批量分析入口、文献周报输出、飞书 webhook 推送基础能力、Streamlit 一键周报入口和 top-k 全文获取基础层。下一步由用户在校园网/学校 VPN 环境下手动验证 WoS 浏览器扩展与全文下载命中率；Agent 在用户测试后读取本地结果文件反馈问题。
 
 ## 2) 已完成（可验证）
 - V1 CLI 主流程已实现：构建兴趣向量、单篇分析、JSON/Markdown 输出。
@@ -38,6 +38,7 @@
 ## 3) 未完成（按优先级）
 P0：真实邮箱联调
 - 调试阶段优先勾选前端“只验证抓取和全文下载，不调用 LLM”，确认 `browser_new_unique_paper_count`、全文下载状态和本地 PDF 文件；稳定后再关闭该开关调用 LLM。
+- 当前协作方式：用户负责在校园网/学校 VPN 环境手动测试；Agent 不再继续处理学校机构认证登录，只在用户测试完后读取 `data/processed/fetch_audit.json`、`data/processed/fetched_papers.json` 和最新 `data/outputs/<timestamp>/results.json` / `weekly_report.md` 做反馈。
 - 若用户期望最近两封邮件合计 73 篇但审计只有个位数/十几篇，先检查 `email_details[*].subject` 是否是目标 Alert，再看每个 `alert_links` 的扩展数量。
 - 如果 subject 正确但浏览器错误显示 `access.clarivate.com/login` 或 `forgotpassword`，说明 Playwright profile 没有有效 WoS/Clarivate 访问态；需要让用户在弹出的 Playwright Chromium 中完成一次认证，或后续实现连接用户日常 Chrome 登录态。
 - 如果浏览器进入 Web of Science Free Profile/机构访问提示，说明 Clarivate 个人账号不足以访问完整结果；需要学校 VPN/校园网、机构名称和统一认证凭据，或复用用户已打开的具备机构访问态的浏览器。
