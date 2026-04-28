@@ -34,8 +34,9 @@ P2：V2 连通性增强
 
 ## 4) 当前阻塞
 - 无代码硬阻塞。
+- GitHub 上传阻塞：本地 Git 仓库和 `main` 分支已完成，远端 `origin` 指向 `https://github.com/wangchi0312/paper-ai-analyzer.git`；但当前环境没有可用 HTTPS GitHub 凭据，SSH 也未配置 public key，`git push -u origin main` 未成功。
 - 真实邮箱联调需要 `.env` 中配置 `QQ_EMAIL` 和 `QQ_EMAIL_AUTH_CODE`。
-- 协作约束：所有联网操作/API 调用由用户执行，Agent 不再主动运行真实 API、邮箱抓取、pip 安装、模型下载、网页请求。
+- 协作约束：用户明确要求或批准时，Agent 可以执行联网操作；真实 API/邮箱/付费调用仍需先说明风险并保持可控。
 - 风险项：OCR 依赖（Tesseract/Poppler）在不同机器上可能缺失，需维持清晰报错提示。
 
 ## 5) 最近改动文件
@@ -43,6 +44,7 @@ P2：V2 连通性增强
 - .claude/todo.md（更新已完成项）
 - .claude/worklog.md（追加 2026-04-27 开发记录）
 - .claude/worklog.md（追加 2026-04-28 抓取审计与网页补全回退记录）
+- .gitignore、README.md、AGENTS.md、CLAUDE.md（准备 GitHub 首次上传）
 - main.py（新增 V2 命令入口）
 - main.py（`fetch-papers` / `run` 新增 `--audit-output`）
 - pipeline/analyze_papers.py（新增 FetchedPaper 批量分析）
@@ -77,3 +79,4 @@ P2：V2 连通性增强
 1. 先读：`CLAUDE.md`、`.claude/spec.md`、`.claude/todo.md`、`AGENTS.md`、`skills/project_memory.md`。
 2. 不主动执行联网命令；如需真实邮箱或 API 验证，给用户明确命令，由用户执行后反馈终端输出。
 3. 根据用户反馈将验证结果写入 `.claude/worklog.md`，再决定是否增强网页补全或 Streamlit 批量入口。
+4. 若继续 GitHub 上传，先让用户完成一种授权：安装/登录 `gh`、配置 SSH key，或手动创建空仓库后在交互终端执行 push。

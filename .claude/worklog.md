@@ -26,11 +26,13 @@
 
 ### 验证结果
 - `git status --ignored` 已确认 `.env`、`.eml`、`data/debug_emails/`、PDF、processed/output 数据均被忽略。
-- 本地仓库已初始化，待创建首个 commit 并推送远端。
+- 本地仓库已初始化，首个 commit 为 `56dc925 Initial project import`，当前分支 `main`。
+- 已设置远端 `origin=https://github.com/wangchi0312/paper-ai-analyzer.git`。
+- `git push -u origin main` 失败：当前非交互环境没有可用 HTTPS GitHub 凭据。
+- SSH 检查失败：GitHub host key 已接受，但 `git@github.com` 返回 `Permission denied (publickey)`。
 
 ### 下一步
-- 创建本地首个 commit。
-- 如本机存在 GitHub 凭据，创建/连接远端仓库并推送；若缺少凭据，需要用户提供授权方式或手动创建空仓库。
+- 需要用户提供一个可用授权方式：安装并登录 GitHub CLI、配置 GitHub SSH key，或在 GitHub 手动创建空仓库后从交互终端推送。
 
 ---
 
