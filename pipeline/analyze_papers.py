@@ -77,7 +77,7 @@ def analyze_papers(
 
         analyzed.append(paper)
 
-    return write_outputs(analyzed, output_root=output_root)
+    return write_outputs(analyzed, output_root=output_root, research_topic=research_topic)
 
 
 def analyze_pdf(
@@ -130,7 +130,7 @@ def analyze_pdf(
         except Exception as exc:
             paper.skipped_reason = f"LLM 分析未完成：{exc}"
 
-    return write_outputs([paper], output_root=output_root)
+    return write_outputs([paper], output_root=output_root, research_topic=research_topic)
 
 
 def _select_fetch_text(paper: FetchedPaper, max_chars: int) -> str:

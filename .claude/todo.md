@@ -27,9 +27,12 @@
 - [x] 抓取审计：`fetch-papers` 输出本次邮件数、解析数、去重数等统计
 - [x] 清理旧 smoke test 输出（当前未发现 `data/outputs/smoke/` 目录，无需处理）
 - [x] Streamlit 暴露邮件批量分析入口，支持读取 `fetched_papers.json` 和 `top-k`
+- [x] 生成 `weekly_report.md` 文献周报，作为前端优先展示结果
+- [x] 飞书自定义机器人 webhook 推送基础能力
 
 ## 后续版本
 
 - [ ] 历史抓取管理：将 `fetch-papers` 结果追加到长期论文库，而不是只覆盖本次 `fetched_papers.json`
 - [ ] 重扫能力：增加 `--reset-seen` 或类似参数，允许重新扫描历史 WoS 邮件
 - [ ] 跨运行周期去重：长期论文库按 DOI 或规范化标题去重
+- [ ] Streamlit 一键运行：前端填写 LLM/邮箱配置后直接抓取、分析、生成并推送周报

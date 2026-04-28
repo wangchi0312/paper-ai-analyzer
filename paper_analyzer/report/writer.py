@@ -3,14 +3,20 @@ import json
 from pathlib import Path
 
 from paper_analyzer.data.schema import Paper, PaperAnalysis
+from paper_analyzer.report.weekly import build_weekly_report
 
 
-def write_outputs(papers: list[Paper], output_root: str = "data/outputs") -> Path:
+def write_outputs(
+    papers: list[Paper],
+    output_root: str = "data/outputs",
+    research_topic: str | None = None,
+) -> Path:
     output_dir = Path(output_root) / datetime.now().strftime("%Y%m%d_%H%M%S")
     output_dir.mkdir(parents=True, exist_ok=True)
 
     results_path = output_dir / "results.json"
     report_path = output_dir / "report.md"
+    weekly_report_path = output_dir / "weekly_report.md"
 
     results = [paper.to_dict() for paper in papers]
     results_path.write_text(
@@ -18,6 +24,10 @@ def write_outputs(papers: list[Paper], output_root: str = "data/outputs") -> Pat
         encoding="utf-8",
     )
     report_path.write_text(_build_markdown(papers), encoding="utf-8")
+    weekly_report_path.write_text(
+        build_weekly_report(papers, research_topic=research_topic),
+        encoding="utf-8",
+    )
 
     return output_dir
 

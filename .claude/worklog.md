@@ -6,6 +6,45 @@
 
 ## 2026-04-28
 
+### 补充：文献周报输出与飞书推送
+
+### 做了什么
+- 新增 `paper_analyzer/report/weekly.py`，将批量分析结果汇总为面向用户阅读的 `weekly_report.md`。
+- `write_outputs()` 现在同时输出 `results.json`、`report.md` 和 `weekly_report.md`。
+- 新增 `paper_analyzer/notification/feishu.py`，支持飞书自定义机器人 webhook 文本推送和可选签名密钥。
+- Streamlit 前端优先展示 `weekly_report.md`，邮件批量分析完成后可选择推送到飞书。
+- 补充周报和飞书推送单元测试。
+
+### 为什么
+- 用户确认最终交付物应是一篇文献周报，而不是中间论文列表。
+- 用户确认推送渠道只做飞书，企业微信后续版本不再规划。
+
+### 影响文件
+- .claude/spec.md
+- .claude/todo.md
+- .claude/worklog.md
+- app.py
+- pipeline/analyze_papers.py
+- paper_analyzer/report/writer.py
+- paper_analyzer/report/weekly.py
+- paper_analyzer/notification/__init__.py
+- paper_analyzer/notification/feishu.py
+- tests/test_report_writer.py
+- tests/test_weekly_report.py
+- tests/test_feishu.py
+
+### 验证结果
+- 本地单元测试：`43 passed`。
+- 语法检查：`py_compile app.py main.py pipeline/analyze_papers.py pipeline/fetch_papers.py paper_analyzer/report/weekly.py paper_analyzer/notification/feishu.py` 通过。
+- 未执行真实飞书 webhook 推送。
+
+### 下一步
+- 将 Streamlit 前端进一步改成“一键运行”：前端填写 LLM/邮箱配置后直接执行抓取、分析、生成周报和飞书推送。
+
+---
+
+## 2026-04-28
+
 ### 补充：修正前端产品目标为一键周报
 
 ### 做了什么

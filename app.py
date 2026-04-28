@@ -5,6 +5,7 @@ import streamlit as st
 
 from pipeline.analyze_papers import analyze_papers, analyze_pdf
 from pipeline.fetch_papers import load_fetched_papers
+from paper_analyzer.notification.feishu import send_feishu_text
 from paper_analyzer.utils.config import load_research_topic
 
 
@@ -87,6 +88,12 @@ def _render_batch_tab(params: dict) -> None:
     top_k_enabled = st.checkbox("限制 LLM 分析篇数", value=True)
     top_k_value = st.number_input("Top K", min_value=1, max_value=100, value=5, step=1, disabled=not top_k_enabled)
     top_k = int(top_k_value) if top_k_enabled else None
+    push_to_feishu = st.checkbox("生成后推送到飞书", value=False)
+    feishu_webhook = ""
+    feishu_secret = ""
+    if push_to_feishu:
+        feishu_webhook = st.text_input("飞书机器人 Webhook", type="password")
+        feishu_secret = st.text_input("飞书签名密钥（可选）", type="password")
 
     try:
         fetched_papers = load_fetched_papers(fetched_path)
@@ -129,6 +136,17 @@ def _render_batch_tab(params: dict) -> None:
                 return
 
         st.success(f"批量分析完成：{output_dir}")
+        if push_to_feishu:
+            try:
+                weekly_report_path = output_dir / "weekly_report.md"
+                send_feishu_text(
+                    webhook_url=feishu_webhook,
+                    text=weekly_report_path.read_text(encoding="utf-8"),
+                    secret=feishu_secret or None,
+                )
+                st.success("已推送到飞书。")
+            except Exception as exc:
+                st.error(f"飞书推送失败：{exc}")
         _show_result(output_dir)
 
 
@@ -150,16 +168,19 @@ def _cleanup_pdf(pdf_path: Path) -> None:
 
 
 def _show_result(output_dir: Path) -> None:
+    weekly_report_path = output_dir / "weekly_report.md"
     report_path = output_dir / "report.md"
     results_path = output_dir / "results.json"
 
     col1, col2 = st.columns([2, 1])
     with col1:
-        st.subheader("报告")
-        if report_path.exists():
+        st.subheader("周报")
+        if weekly_report_path.exists():
+            st.markdown(weekly_report_path.read_text(encoding="utf-8"))
+        elif report_path.exists():
             st.markdown(report_path.read_text(encoding="utf-8"))
         else:
-            st.warning("未找到 report.md")
+            st.warning("未找到报告文件")
 
     with col2:
         st.subheader("输出文件")
@@ -176,6 +197,13 @@ def _show_result(output_dir: Path) -> None:
                 label="下载 report.md",
                 data=report_path.read_text(encoding="utf-8"),
                 file_name="report.md",
+                mime="text/markdown",
+            )
+        if weekly_report_path.exists():
+            st.download_button(
+                label="下载 weekly_report.md",
+                data=weekly_report_path.read_text(encoding="utf-8"),
+                file_name="weekly_report.md",
                 mime="text/markdown",
             )
 

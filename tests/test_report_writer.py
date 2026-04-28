@@ -43,6 +43,7 @@ def test_write_outputs():
 
     assert (output_dir / "results.json").exists()
     assert (output_dir / "report.md").exists()
+    assert (output_dir / "weekly_report.md").exists()
 
     results = json.loads((output_dir / "results.json").read_text(encoding="utf-8"))
     assert results[0]["title"] == "Example"
@@ -50,3 +51,6 @@ def test_write_outputs():
     report = (output_dir / "report.md").read_text(encoding="utf-8")
     assert "# 文献总结（精简版）" in report
     assert "## 10. 启发与不足" in report
+    weekly_report = (output_dir / "weekly_report.md").read_text(encoding="utf-8")
+    assert "# 文献追踪周报" in weekly_report
+    assert "## 二、重点推荐" in weekly_report
