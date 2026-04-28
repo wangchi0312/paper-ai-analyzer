@@ -1,0 +1,139 @@
+import json
+import shutil
+from pathlib import Path
+
+import numpy as np
+
+from paper_analyzer.data.schema import FetchedPaper
+from pipeline import analyze_papers as analyze_mod
+
+
+class FakeEmbedder:
+    def __init__(self, model_name: str):
+        self.model_name = model_name
+
+    def encode(self, texts):
+        if isinstance(texts, str):
+            return np.array([1.0, 0.0])
+        return np.array([[1.0, 0.0] for _ in texts])
+
+
+class RankedFakeEmbedder:
+    def __init__(self, model_name: str):
+        self.model_name = model_name
+
+    def encode(self, texts):
+        return np.array(
+            [
+                [1.0, 0.0],
+                [0.8, 0.6],
+                [0.6, 0.8],
+            ]
+        )
+
+
+class FakeAnalyzer:
+    def __init__(self, provider=None):
+        self.provider = provider
+
+    def analyze(self, text, research_topic=None):
+        from paper_analyzer.data.schema import PaperAnalysis
+
+        return PaperAnalysis.from_dict(
+            {
+                "first_author": "A",
+                "paper_title": text,
+                "core_hypotheses": ["H"],
+            }
+        )
+
+
+def _make_tmp_dir(name: str) -> Path:
+    path = Path("data/outputs/test_tmp") / name
+    if path.exists():
+        shutil.rmtree(path)
+    path.mkdir(parents=True)
+    return path
+
+
+def test_analyze_fetched_papers_skip_llm(monkeypatch):
+    tmp_path = _make_tmp_dir("analyze_fetched")
+    profile_path = tmp_path / "profile.npy"
+    np.save(profile_path, np.array([1.0, 0.0]))
+    monkeypatch.setattr(analyze_mod, "Embedder", FakeEmbedder)
+
+    papers = [
+        FetchedPaper(
+            title="Fetched Paper",
+            abstract="This is an abstract.",
+            link="https://example.com/paper",
+            source_email_id="<id@example.com>",
+        )
+    ]
+
+    output_dir = analyze_mod.analyze_papers(
+        papers=papers,
+        profile_path=str(profile_path),
+        output_root=str(tmp_path / "outputs"),
+        skip_llm=True,
+    )
+
+    results = json.loads((output_dir / "results.json").read_text(encoding="utf-8"))
+    assert results[0]["title"] == "Fetched Paper"
+    assert results[0]["source_path"] is None
+    assert results[0]["link"] == "https://example.com/paper"
+    assert results[0]["score"] == 1.0
+    assert results[0]["skipped_reason"] == "用户指定跳过 LLM 分析"
+
+
+def test_analyze_fetched_papers_skip_llm_ignores_top_k(monkeypatch):
+    tmp_path = _make_tmp_dir("analyze_fetched_skip_top_k")
+    profile_path = tmp_path / "profile.npy"
+    np.save(profile_path, np.array([1.0, 0.0]))
+    monkeypatch.setattr(analyze_mod, "Embedder", RankedFakeEmbedder)
+
+    papers = [
+        FetchedPaper(title="Top 1", abstract="top one"),
+        FetchedPaper(title="Top 2", abstract="top two"),
+        FetchedPaper(title="Top 3", abstract="top three"),
+    ]
+
+    output_dir = analyze_mod.analyze_papers(
+        papers=papers,
+        profile_path=str(profile_path),
+        threshold=0.0,
+        output_root=str(tmp_path / "outputs"),
+        skip_llm=True,
+        top_k=1,
+    )
+
+    results = json.loads((output_dir / "results.json").read_text(encoding="utf-8"))
+    assert [item["skipped_reason"] for item in results] == ["用户指定跳过 LLM 分析"] * 3
+
+
+def test_analyze_fetched_papers_top_k_limits_llm(monkeypatch):
+    tmp_path = _make_tmp_dir("analyze_fetched_top_k")
+    profile_path = tmp_path / "profile.npy"
+    np.save(profile_path, np.array([1.0, 0.0]))
+    monkeypatch.setattr(analyze_mod, "Embedder", RankedFakeEmbedder)
+    monkeypatch.setattr(analyze_mod, "Analyzer", FakeAnalyzer)
+
+    papers = [
+        FetchedPaper(title="Top 1", abstract="top one"),
+        FetchedPaper(title="Top 2", abstract="top two"),
+        FetchedPaper(title="Top 3", abstract="top three"),
+    ]
+
+    output_dir = analyze_mod.analyze_papers(
+        papers=papers,
+        profile_path=str(profile_path),
+        threshold=0.0,
+        output_root=str(tmp_path / "outputs"),
+        top_k=2,
+    )
+
+    results = json.loads((output_dir / "results.json").read_text(encoding="utf-8"))
+    assert results[0]["analysis"] is not None
+    assert results[1]["analysis"] is not None
+    assert results[2]["analysis"] is None
+    assert results[2]["skipped_reason"] == "相似度 0.6000 达到阈值，但未进入 top-2"

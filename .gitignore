@@ -1,0 +1,30 @@
+.env
+.env.*
+!.env.example
+.eml
+*.eml
+.codex
+=4.12,
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+*.egg-info/
+dist/
+build/
+
+# Generated data
+data/debug_emails/*
+data/processed/*.npy
+data/processed/*.json
+data/outputs/*
+!data/outputs/.gitkeep
+data/incoming_pdfs/*
+!data/incoming_pdfs/.gitkeep
+data/profile_pdfs/*
+!data/profile_pdfs/.gitkeep
+
+# Local AI session settings
+.claude/settings.local.json
+.claude/final spec.md

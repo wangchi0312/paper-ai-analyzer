@@ -1,0 +1,143 @@
+import json
+import shutil
+from pathlib import Path
+
+from paper_analyzer.data.schema import FetchedPaper
+from pipeline import fetch_papers as fetch_mod
+from pipeline.fetch_papers import deduplicate_papers, load_fetched_papers, save_fetched_papers
+
+
+def _make_tmp_dir(name: str) -> Path:
+    path = Path("data/outputs/test_tmp") / name
+    if path.exists():
+        shutil.rmtree(path)
+    path.mkdir(parents=True)
+    return path
+
+
+def test_deduplicate_papers_prefers_doi():
+    papers = [
+        FetchedPaper(title="A", abstract="x", doi="10.1/test"),
+        FetchedPaper(title="Different title", abstract="y", doi="10.1/test"),
+        FetchedPaper(title="A", abstract="z", doi=None),
+    ]
+
+    unique = deduplicate_papers(papers)
+
+    assert len(unique) == 2
+    assert unique[0].title == "A"
+    assert unique[1].doi is None
+
+
+def test_deduplicate_papers_by_normalized_title():
+    papers = [
+        FetchedPaper(title="A  Test Paper", abstract="x"),
+        FetchedPaper(title="a test paper", abstract="y"),
+    ]
+
+    unique = deduplicate_papers(papers)
+
+    assert len(unique) == 1
+    assert unique[0].abstract == "x"
+
+
+def test_save_and_load_fetched_papers():
+    path = _make_tmp_dir("fetched_papers") / "fetched.json"
+    papers = [
+        FetchedPaper(
+            title="Test",
+            abstract="abstract",
+            doi="10.1/test",
+            link="https://example.com",
+            authors="A; B",
+            venue="Journal",
+            source_email_id="<id@example.com>",
+            fetch_method="email",
+        )
+    ]
+
+    saved = save_fetched_papers(papers, str(path))
+    loaded = load_fetched_papers(str(saved))
+
+    assert json.loads(path.read_text(encoding="utf-8"))[0]["title"] == "Test"
+    assert loaded == papers
+
+
+def test_fetch_papers_writes_audit(monkeypatch):
+    tmp_dir = _make_tmp_dir("fetch_audit")
+    output_path = tmp_dir / "fetched.json"
+    audit_path = tmp_dir / "audit.json"
+
+    monkeypatch.setattr(
+        fetch_mod,
+        "fetch_wos_emails",
+        lambda since_date, max_emails: [
+            ("<1@example.com>", "Web of Science Alert", "<html>1</html>"),
+            ("<2@example.com>", "Web of Science Alert", "<html>2</html>"),
+        ],
+    )
+    monkeypatch.setattr(
+        fetch_mod,
+        "parse_wos_email",
+        lambda html, source_email_id: [
+            FetchedPaper(title="Same Paper", abstract="a", doi="10.1/same", source_email_id=source_email_id),
+            FetchedPaper(title="Same Paper Duplicate", abstract="b", doi="10.1/same", source_email_id=source_email_id),
+        ],
+    )
+
+    papers = fetch_mod.fetch_papers(
+        since_date="2026-04-01",
+        max_emails=2,
+        no_web=True,
+        output_path=str(output_path),
+        audit_output_path=str(audit_path),
+    )
+
+    audit = json.loads(audit_path.read_text(encoding="utf-8"))
+    assert len(papers) == 1
+    assert audit["since_date"] == "2026-04-01"
+    assert audit["max_emails"] == 2
+    assert audit["no_web"] is True
+    assert audit["email_count"] == 2
+    assert audit["parsed_paper_count"] == 4
+    assert audit["unique_paper_count"] == 1
+    assert audit["duplicate_paper_count"] == 3
+    assert audit["output_path"] == str(output_path)
+
+
+def test_fetch_papers_keeps_email_content_when_web_enrich_fails(monkeypatch):
+    tmp_dir = _make_tmp_dir("fetch_web_fallback")
+    output_path = tmp_dir / "fetched.json"
+    audit_path = tmp_dir / "audit.json"
+
+    monkeypatch.setattr(
+        fetch_mod,
+        "fetch_wos_emails",
+        lambda since_date, max_emails: [
+            ("<1@example.com>", "Web of Science Alert", "<html>1</html>"),
+        ],
+    )
+    monkeypatch.setattr(
+        fetch_mod,
+        "parse_wos_email",
+        lambda html, source_email_id: [
+            FetchedPaper(title="Fallback Paper", abstract="from email", source_email_id=source_email_id),
+        ],
+    )
+
+    def fail_enrich(paper):
+        raise RuntimeError("network unavailable")
+
+    monkeypatch.setattr(fetch_mod, "enrich_from_web", fail_enrich)
+
+    papers = fetch_mod.fetch_papers(
+        max_emails=1,
+        no_web=False,
+        output_path=str(output_path),
+        audit_output_path=str(audit_path),
+    )
+
+    assert len(papers) == 1
+    assert papers[0].title == "Fallback Paper"
+    assert papers[0].abstract == "from email"
+    assert json.loads(output_path.read_text(encoding="utf-8"))[0]["title"] == "Fallback Paper"
