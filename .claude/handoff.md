@@ -3,7 +3,7 @@
 更新时间：2026-04-28
 
 ## 1) 当前目标
-稳定推进 V2（邮件抓取与批量分析）同时保持 V1/V1.1 可用。当前已完成 V2 最小 CLI 闭环、top-k 成本控制、抓取审计、网页补全失败回退、Streamlit 邮件批量分析入口、文献周报输出和飞书 webhook 推送基础能力。下一步应将前端改成“一键运行”。
+稳定推进 V2（邮件抓取与批量分析）同时保持 V1/V1.1 可用。当前已完成 V2 最小 CLI 闭环、top-k 成本控制、抓取审计、网页补全失败回退、Streamlit 邮件批量分析入口、文献周报输出、飞书 webhook 推送基础能力和 Streamlit 一键周报入口。下一步应做真实端到端联调。
 
 ## 2) 已完成（可验证）
 - V1 CLI 主流程已实现：构建兴趣向量、单篇分析、JSON/Markdown 输出。
@@ -18,6 +18,7 @@
 - Streamlit 前端已新增“邮件批量”tab，可读取 `fetched_papers.json` 并复用 `analyze_papers()` 批量输出报告。
 - 统一输出层已新增 `weekly_report.md`，Streamlit 优先展示周报。
 - 飞书自定义机器人 webhook 推送已实现基础文本推送，支持可选签名密钥。
+- Streamlit “一键周报”tab 可在前端填写 LLM/邮箱/飞书配置，并串联抓取、分析、生成周报和可选飞书推送；敏感配置仅在当前进程临时使用，不写入文件。
 - `requirements.txt` 已按当前 Conda 环境锁定版本。
 - 单元测试已覆盖 fetch 结果读写/去重/审计/网页补全回退、邮件 HTML 正文提取、邮件论文批量分析无 LLM 路径。
 - 协作规则已统一：需求变化先更新 spec；切换 Agent 前更新 handoff/worklog。
@@ -29,10 +30,9 @@ P0：真实邮箱联调
 
 P1：工程质量收口
 - `data/outputs/smoke/` 当前未发现对应目录，无需清理
-- 在浏览器检查 Streamlit “邮件批量”tab 的实际交互和报告展示
+- 在浏览器检查 Streamlit “一键周报”tab 的实际交互和报告展示
 
 P2：V2 连通性增强
-- Streamlit 一键运行：前端填写 LLM/邮箱配置后直接执行抓取、分析、生成周报和飞书推送
 - 真实网络下检查 `enrich_from_web()` 对 WoS 页面补全摘要的稳定性。
 - 根据 demo 反馈决定是否继续把 `fetch-papers` 接入 Streamlit。
 
@@ -51,6 +51,8 @@ P2：V2 连通性增强
 - .gitignore、README.md、AGENTS.md、CLAUDE.md（准备 GitHub 首次上传）
 - app.py（新增 Streamlit “邮件批量”tab，支持 `top-k`）
 - app.py（优先展示 `weekly_report.md`，邮件批量分析后可推送飞书）
+- app.py（新增 Streamlit “一键周报”tab）
+- .env.example（新增飞书 webhook 占位）
 - main.py（新增 V2 命令入口）
 - main.py（`fetch-papers` / `run` 新增 `--audit-output`）
 - pipeline/analyze_papers.py（新增 FetchedPaper 批量分析）

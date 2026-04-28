@@ -1,10 +1,12 @@
+from contextlib import contextmanager
+import os
 from pathlib import Path
 import time
 
 import streamlit as st
 
 from pipeline.analyze_papers import analyze_papers, analyze_pdf
-from pipeline.fetch_papers import load_fetched_papers
+from pipeline.fetch_papers import fetch_papers, load_fetched_papers
 from paper_analyzer.notification.feishu import send_feishu_text
 from paper_analyzer.utils.config import load_research_topic
 
@@ -12,6 +14,17 @@ from paper_analyzer.utils.config import load_research_topic
 INCOMING_DIR = Path("data/incoming_pdfs")
 DEFAULT_PROFILE = Path("data/processed/profile.npy")
 DEFAULT_FETCHED = Path("data/processed/fetched_papers.json")
+DEFAULT_AUDIT = Path("data/processed/fetch_audit.json")
+PROVIDER_PREFIX = {
+    "deepseek": "DEEPSEEK",
+    "siliconflow": "SILICONFLOW",
+    "modelscope": "MODELSCOPE",
+}
+DEFAULT_BASE_URL = {
+    "deepseek": "https://api.deepseek.com",
+    "siliconflow": "https://api.siliconflow.cn/v1",
+    "modelscope": "",
+}
 
 
 def main() -> None:
@@ -44,11 +57,109 @@ def main() -> None:
     if not Path(profile_path).exists():
         st.warning("尚未找到兴趣向量，请先运行 build_profile。")
 
-    pdf_tab, batch_tab = st.tabs(["单篇 PDF", "邮件批量"])
+    weekly_tab, pdf_tab, batch_tab = st.tabs(["一键周报", "单篇 PDF", "邮件批量"])
+    with weekly_tab:
+        _render_weekly_tab(params)
     with pdf_tab:
         _render_pdf_tab(params)
     with batch_tab:
         _render_batch_tab(params)
+
+
+def _render_weekly_tab(params: dict) -> None:
+    st.subheader("一键生成文献周报")
+
+    with st.form("weekly_report_form"):
+        st.markdown("**模型配置**")
+        provider = st.selectbox("模型提供商", ["deepseek", "siliconflow", "modelscope"], index=0)
+        model_name = st.text_input("模型名", value=os.getenv("DEEPSEEK_MODEL", "deepseek-chat"))
+        base_url = st.text_input("Base URL", value=DEFAULT_BASE_URL[provider])
+        api_key = st.text_input("API Key", type="password")
+
+        st.markdown("**邮箱配置**")
+        email_provider = st.selectbox("邮箱运营商", ["QQ邮箱"], index=0)
+        email_address = st.text_input("邮箱地址")
+        email_auth_code = st.text_input("邮箱授权码", type="password")
+
+        st.markdown("**抓取与筛选**")
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            since_date = st.text_input("起始日期（可选）", placeholder="YYYY-MM-DD")
+        with col2:
+            max_emails = st.number_input("最多检查邮件数", min_value=1, max_value=500, value=50, step=1)
+        with col3:
+            top_k = st.number_input("深度解读 Top K", min_value=1, max_value=50, value=5, step=1)
+
+        no_web = st.checkbox("跳过网页补全，只使用邮件内容", value=True)
+        push_to_feishu = st.checkbox("生成后推送到飞书", value=False)
+        feishu_webhook = ""
+        feishu_secret = ""
+        if push_to_feishu:
+            feishu_webhook = st.text_input("飞书机器人 Webhook", type="password")
+            feishu_secret = st.text_input("飞书签名密钥（可选）", type="password")
+
+        submitted = st.form_submit_button("生成周报", type="primary")
+
+    if not submitted:
+        return
+
+    if email_provider != "QQ邮箱":
+        st.error("当前版本只支持 QQ 邮箱。")
+        return
+    if not api_key or not model_name or not base_url:
+        st.error("请填写完整的模型配置。")
+        return
+    if not email_address or not email_auth_code:
+        st.error("请填写邮箱地址和邮箱授权码。")
+        return
+    if push_to_feishu and not feishu_webhook:
+        st.error("请填写飞书机器人 Webhook。")
+        return
+
+    with st.spinner("正在抓取邮件、分析论文并生成周报..."):
+        try:
+            with _temporary_runtime_env(
+                provider=provider,
+                api_key=api_key,
+                base_url=base_url,
+                model_name=model_name,
+                email_address=email_address,
+                email_auth_code=email_auth_code,
+                research_topic=params["research_topic"],
+            ):
+                fetched = fetch_papers(
+                    since_date=since_date or None,
+                    max_emails=int(max_emails),
+                    no_web=no_web,
+                    output_path=str(DEFAULT_FETCHED),
+                    audit_output_path=str(DEFAULT_AUDIT),
+                )
+                output_dir = analyze_papers(
+                    papers=fetched,
+                    profile_path=params["profile_path"],
+                    threshold=params["threshold"],
+                    provider=provider,
+                    max_chars=params["max_chars"],
+                    llm_max_chars=params["llm_max_chars"],
+                    output_root=params["output_root"],
+                    skip_llm=False,
+                    research_topic=params["research_topic"],
+                    top_k=int(top_k),
+                )
+            if push_to_feishu:
+                send_feishu_text(
+                    webhook_url=feishu_webhook,
+                    text=(output_dir / "weekly_report.md").read_text(encoding="utf-8"),
+                    secret=feishu_secret or None,
+                )
+        except Exception as exc:
+            st.error(f"周报生成失败：{exc}")
+            return
+
+    st.success(f"周报生成完成：{output_dir}")
+    if push_to_feishu:
+        st.success("已推送到飞书。")
+    _show_result(output_dir)
 
 
 def _render_pdf_tab(params: dict) -> None:
@@ -206,6 +317,40 @@ def _show_result(output_dir: Path) -> None:
                 file_name="weekly_report.md",
                 mime="text/markdown",
             )
+
+
+@contextmanager
+def _temporary_runtime_env(
+    provider: str,
+    api_key: str,
+    base_url: str,
+    model_name: str,
+    email_address: str,
+    email_auth_code: str,
+    research_topic: str | None,
+):
+    prefix = PROVIDER_PREFIX[provider]
+    updates = {
+        "LLM_PROVIDER": provider,
+        f"{prefix}_API_KEY": api_key,
+        f"{prefix}_BASE_URL": base_url,
+        f"{prefix}_MODEL": model_name,
+        "QQ_EMAIL": email_address,
+        "QQ_EMAIL_AUTH_CODE": email_auth_code,
+    }
+    if research_topic:
+        updates["RESEARCH_TOPIC"] = research_topic
+
+    old_values = {key: os.environ.get(key) for key in updates}
+    try:
+        os.environ.update(updates)
+        yield
+    finally:
+        for key, value in old_values.items():
+            if value is None:
+                os.environ.pop(key, None)
+            else:
+                os.environ[key] = value
 
 
 if __name__ == "__main__":

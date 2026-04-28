@@ -29,10 +29,11 @@
 - [x] Streamlit 暴露邮件批量分析入口，支持读取 `fetched_papers.json` 和 `top-k`
 - [x] 生成 `weekly_report.md` 文献周报，作为前端优先展示结果
 - [x] 飞书自定义机器人 webhook 推送基础能力
+- [x] Streamlit 一键周报入口：前端填写 LLM/邮箱/飞书配置后串联运行
 
 ## 后续版本
 
 - [ ] 历史抓取管理：将 `fetch-papers` 结果追加到长期论文库，而不是只覆盖本次 `fetched_papers.json`
 - [ ] 重扫能力：增加 `--reset-seen` 或类似参数，允许重新扫描历史 WoS 邮件
 - [ ] 跨运行周期去重：长期论文库按 DOI 或规范化标题去重
-- [ ] Streamlit 一键运行：前端填写 LLM/邮箱配置后直接抓取、分析、生成并推送周报
+- [ ] 真实一键周报联调：使用真实 QQ 邮箱、LLM 和飞书 webhook 生成并推送一篇周报

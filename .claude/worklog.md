@@ -6,6 +6,38 @@
 
 ## 2026-04-28
 
+### 补充：Streamlit 一键周报入口
+
+### 做了什么
+- 在 Streamlit 新增“一键周报”tab。
+- 前端支持填写 LLM provider、模型名、Base URL、API key、QQ 邮箱地址、邮箱授权码、抓取范围、top-k 和飞书 webhook。
+- 点击“生成周报”后，后台串联 `fetch_papers()`、`analyze_papers()`、`weekly_report.md` 生成和可选飞书推送。
+- 前端输入的 API key、邮箱授权码和飞书 webhook 只在当前进程环境变量中临时使用，运行结束后恢复，不写入 `.env` 或代码。
+- `.env.example` 增加飞书 webhook 和签名密钥占位。
+
+### 为什么
+- 用户确认最终产品形态应是：下载项目、启动前端、填写配置、后台自动运行，最终得到一篇文献周报，并可推送飞书。
+- 用户已确认飞书为唯一外部推送渠道，不再规划企业微信版本。
+
+### 影响文件
+- .env.example
+- .claude/spec.md
+- .claude/todo.md
+- .claude/worklog.md
+- app.py
+
+### 验证结果
+- 本地单元测试：`43 passed`。
+- 语法检查：`py_compile app.py main.py pipeline/analyze_papers.py pipeline/fetch_papers.py paper_analyzer/report/weekly.py paper_analyzer/notification/feishu.py` 通过。
+- 未使用真实 QQ 邮箱、LLM API 或飞书 webhook 做端到端联调。
+
+### 下一步
+- 使用真实配置执行一次“一键周报”端到端验证，确认 WoS 邮件解析、LLM 输出、周报展示和飞书推送均可用。
+
+---
+
+## 2026-04-28
+
 ### 补充：文献周报输出与飞书推送
 
 ### 做了什么
