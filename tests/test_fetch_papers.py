@@ -255,18 +255,24 @@ def test_fetch_papers_uses_browser_when_requests_expansion_empty(monkeypatch):
     )
     monkeypatch.setattr(fetch_mod, "extract_alert_summary_links", lambda html: ["https://wos.example/summary"])
     monkeypatch.setattr(fetch_mod, "_fetch_alert_summary_papers", lambda url, source_email_id: [])
+
+    browser_max_pages_seen = []
+
+    def browser_fetch(url, source_email_id, max_pages):
+        browser_max_pages_seen.append(max_pages)
+        return [FetchedPaper(title="Browser Paper", abstract="", source_email_id=source_email_id)]
+
     monkeypatch.setattr(
         fetch_mod,
         "fetch_wos_alert_with_browser",
-        lambda url, source_email_id: [
-            FetchedPaper(title="Browser Paper", abstract="", source_email_id=source_email_id),
-        ],
+        browser_fetch,
     )
 
     papers = fetch_mod.fetch_papers(
         no_web=True,
         expand_alert_pages=True,
         use_browser=True,
+        browser_max_pages=12,
         output_path=str(output_path),
         audit_output_path=str(audit_path),
     )
@@ -276,8 +282,10 @@ def test_fetch_papers_uses_browser_when_requests_expansion_empty(monkeypatch):
     assert audit["browser_expanded_paper_count"] == 1
     assert audit["browser_new_unique_paper_count"] == 1
     assert audit["browser_duplicate_paper_count"] == 0
+    assert audit["browser_max_pages"] == 12
     assert audit["browser_expand_error_count"] == 0
     assert audit["browser_expand_last_error"] is None
+    assert browser_max_pages_seen == [12]
 
 
 def test_fetch_papers_counts_browser_duplicates(monkeypatch):
@@ -305,7 +313,7 @@ def test_fetch_papers_counts_browser_duplicates(monkeypatch):
     monkeypatch.setattr(
         fetch_mod,
         "fetch_wos_alert_with_browser",
-        lambda url, source_email_id: [
+        lambda url, source_email_id, max_pages: [
             FetchedPaper(title="Same Paper", abstract="", source_email_id=source_email_id),
         ],
     )
@@ -346,7 +354,7 @@ def test_fetch_papers_records_browser_error_type(monkeypatch):
         def __str__(self) -> str:
             return ""
 
-    def raise_empty_error(url, source_email_id):
+    def raise_empty_error(url, source_email_id, max_pages):
         raise EmptyError()
 
     monkeypatch.setattr(fetch_mod, "fetch_wos_alert_with_browser", raise_empty_error)

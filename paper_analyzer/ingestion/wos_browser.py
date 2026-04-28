@@ -9,7 +9,7 @@ def fetch_wos_alert_with_browser(
     source_email_id: str | None = None,
     timeout_ms: int = 30000,
     headless: bool = False,
-    max_pages: int = 5,
+    max_pages: int = 20,
 ) -> list[FetchedPaper]:
     _prepare_playwright_runtime()
     try:

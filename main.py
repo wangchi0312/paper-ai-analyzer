@@ -41,6 +41,7 @@ def main() -> None:
     fetch_parser.add_argument("--ignore-seen", action="store_true", help="重新扫描已处理过的 WoS 邮件")
     fetch_parser.add_argument("--expand-alert-pages", action="store_true", help="进入 WoS View all 完整结果页扩展候选论文")
     fetch_parser.add_argument("--use-browser", action="store_true", help="requests 无法解析完整结果页时使用 Playwright 浏览器模式")
+    fetch_parser.add_argument("--browser-max-pages", type=int, default=20, help="浏览器模式最多翻页数")
 
     run_parser = subparsers.add_parser("run", help="获取邮件论文并批量分析")
     run_parser.add_argument("--since", default=None, help="只获取该日期之后的邮件，格式 YYYY-MM-DD")
@@ -50,6 +51,7 @@ def main() -> None:
     run_parser.add_argument("--ignore-seen", action="store_true", help="重新扫描已处理过的 WoS 邮件")
     run_parser.add_argument("--expand-alert-pages", action="store_true", help="进入 WoS View all 完整结果页扩展候选论文")
     run_parser.add_argument("--use-browser", action="store_true", help="requests 无法解析完整结果页时使用 Playwright 浏览器模式")
+    run_parser.add_argument("--browser-max-pages", type=int, default=20, help="浏览器模式最多翻页数")
     run_parser.add_argument("--profile", default="data/processed/profile.npy", help="兴趣向量路径")
     run_parser.add_argument("--threshold", type=float, default=0.5, help="LLM 分析触发阈值")
     run_parser.add_argument("--provider", default=None, help="LLM provider：deepseek/siliconflow/modelscope")
@@ -126,6 +128,7 @@ def main() -> None:
             ignore_seen=args.ignore_seen,
             expand_alert_pages=args.expand_alert_pages,
             use_browser=args.use_browser,
+            browser_max_pages=args.browser_max_pages,
         )
         print(f"已获取论文 {len(papers)} 篇，保存到：{args.output}")
     elif args.command == "run":
@@ -140,6 +143,7 @@ def main() -> None:
             ignore_seen=args.ignore_seen,
             expand_alert_pages=args.expand_alert_pages,
             use_browser=args.use_browser,
+            browser_max_pages=args.browser_max_pages,
         )
         output_dir = analyze_papers(
             papers=papers,

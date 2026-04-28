@@ -26,6 +26,7 @@ def fetch_papers(
     ignore_seen: bool = False,
     expand_alert_pages: bool = False,
     use_browser: bool = False,
+    browser_max_pages: int = 20,
 ) -> list[FetchedPaper]:
     emails, email_stats = fetch_wos_emails_with_stats(
         since_date=since_date,
@@ -53,7 +54,11 @@ def fetch_papers(
                 expanded_paper_count += len(expanded)
                 if use_browser and not expanded:
                     try:
-                        browser_expanded = fetch_wos_alert_with_browser(link, source_email_id=message_id)
+                        browser_expanded = fetch_wos_alert_with_browser(
+                            link,
+                            source_email_id=message_id,
+                            max_pages=browser_max_pages,
+                        )
                     except Exception as exc:
                         logger.warning("浏览器模式扩展 WoS 结果失败：%s (%s)", link, exc)
                         browser_expand_error_count += 1
@@ -87,6 +92,7 @@ def fetch_papers(
             checked_email_count=email_stats["checked_email_count"],
             matched_wos_email_count=email_stats["matched_wos_email_count"],
             skipped_seen_email_count=email_stats["skipped_seen_email_count"],
+            browser_max_pages=browser_max_pages if use_browser else 0,
             browser_expanded_paper_count=browser_expanded_paper_count,
             browser_new_unique_paper_count=browser_new_unique_paper_count,
             browser_duplicate_paper_count=browser_duplicate_paper_count,
@@ -226,6 +232,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--ignore-seen", action="store_true", help="重新扫描已处理过的 WoS 邮件")
     parser.add_argument("--expand-alert-pages", action="store_true", help="进入 WoS View all 完整结果页扩展候选论文")
     parser.add_argument("--use-browser", action="store_true", help="requests 无法解析完整结果页时使用 Playwright 浏览器模式")
+    parser.add_argument("--browser-max-pages", type=int, default=20, help="浏览器模式最多翻页数")
     return parser.parse_args()
 
 
@@ -240,6 +247,7 @@ def main() -> None:
         ignore_seen=args.ignore_seen,
         expand_alert_pages=args.expand_alert_pages,
         use_browser=args.use_browser,
+        browser_max_pages=args.browser_max_pages,
     )
     print(f"已获取论文 {len(papers)} 篇，保存到：{args.output}")
 

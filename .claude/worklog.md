@@ -6,6 +6,42 @@
 
 ## 2026-04-28
 
+### 补充：浏览器最多翻页数可配置
+
+### 做了什么
+- Streamlit 一键周报新增“浏览器最多翻页数”，默认 20，只有启用浏览器模式时可编辑。
+- `fetch-papers` 和 `run` 新增 `--browser-max-pages` 参数。
+- `fetch_papers()` 新增 `browser_max_pages` 参数，并传给 Playwright WoS 抽取函数。
+- 抓取审计新增 `browser_max_pages`，记录本次浏览器扩展配置。
+- 测试覆盖 `browser_max_pages` 传递与审计写入。
+
+### 为什么
+- 用户真实审计显示浏览器扩展已成功带来新增唯一候选：`browser_new_unique_paper_count=14`。
+- 但 WoS Alert 可能有几十到上百篇结果，固定最多 5 页不适合真实使用；需要让用户按邮件规模和耗时调整。
+
+### 影响文件
+- .claude/spec.md
+- .claude/worklog.md
+- app.py
+- main.py
+- pipeline/fetch_papers.py
+- paper_analyzer/data/schema.py
+- paper_analyzer/ingestion/wos_browser.py
+- tests/test_fetch_papers.py
+
+### 验证结果
+- 局部测试：`12 passed`。
+- 全量测试：`61 passed`。
+- 语法检查：`py_compile app.py main.py pipeline/fetch_papers.py paper_analyzer/ingestion/wos_browser.py paper_analyzer/data/schema.py` 通过。
+
+### 下一步
+- 用户可将浏览器最多翻页数从 20 逐步提高到 30 或 50，观察 `browser_new_unique_paper_count` 是否继续增长。
+- 若增长停滞但 WoS 页面显示仍有更多结果，再分析 WoS 的真实分页控件或接口请求。
+
+---
+
+## 2026-04-28
+
 ### 补充：浏览器模式支持滚动和翻页抽取
 
 ### 做了什么
