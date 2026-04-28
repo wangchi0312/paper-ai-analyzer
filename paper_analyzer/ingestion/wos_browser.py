@@ -1,7 +1,13 @@
+from pathlib import Path
+from urllib.parse import urlparse
+
 from bs4 import BeautifulSoup
 
 from paper_analyzer.data.schema import FetchedPaper
 from paper_analyzer.ingestion.wos_parser import _extract_wos_url
+
+
+DEFAULT_BROWSER_PROFILE_DIR = "data/browser_profiles/wos"
 
 
 def fetch_wos_alert_with_browser(
@@ -10,6 +16,7 @@ def fetch_wos_alert_with_browser(
     timeout_ms: int = 30000,
     headless: bool = False,
     max_pages: int = 20,
+    browser_profile_dir: str | None = DEFAULT_BROWSER_PROFILE_DIR,
 ) -> list[FetchedPaper]:
     _prepare_playwright_runtime()
     try:
@@ -19,19 +26,37 @@ def fetch_wos_alert_with_browser(
 
     try:
         with sync_playwright() as playwright:
-            browser = playwright.chromium.launch(headless=headless)
-            try:
-                page = browser.new_page()
-                page.goto(url, wait_until="networkidle", timeout=timeout_ms)
-                _wait_for_wos_records(page, timeout_ms=timeout_ms)
-                papers = _collect_wos_records_across_pages(
-                    page,
-                    source_email_id=source_email_id,
-                    timeout_ms=timeout_ms,
-                    max_pages=max_pages,
+            if browser_profile_dir:
+                context = playwright.chromium.launch_persistent_context(
+                    user_data_dir=str(Path(browser_profile_dir)),
+                    headless=headless,
                 )
-            finally:
-                browser.close()
+                try:
+                    page = context.new_page()
+                    page.goto(url, wait_until="networkidle", timeout=timeout_ms)
+                    _wait_for_wos_records(page, timeout_ms=timeout_ms)
+                    papers = _collect_wos_records_across_pages(
+                        page,
+                        source_email_id=source_email_id,
+                        timeout_ms=timeout_ms,
+                        max_pages=max_pages,
+                    )
+                finally:
+                    context.close()
+            else:
+                browser = playwright.chromium.launch(headless=headless)
+                try:
+                    page = browser.new_page()
+                    page.goto(url, wait_until="networkidle", timeout=timeout_ms)
+                    _wait_for_wos_records(page, timeout_ms=timeout_ms)
+                    papers = _collect_wos_records_across_pages(
+                        page,
+                        source_email_id=source_email_id,
+                        timeout_ms=timeout_ms,
+                        max_pages=max_pages,
+                    )
+                finally:
+                    browser.close()
     except NotImplementedError as exc:
         raise RuntimeError(
             "Playwright 启动浏览器子进程失败。若在 Streamlit/Windows 中运行，"
@@ -180,8 +205,15 @@ def _wait_for_wos_records(page, timeout_ms: int) -> None:
         except Exception:
             continue
     title = _safe_page_title(page)
-    current_url = getattr(page, "url", "")
+    current_url = _summarize_page_url(getattr(page, "url", ""))
     raise RuntimeError(f"页面已打开但未发现 WoS 记录链接；title={title!r}；url={current_url!r}")
+
+
+def _summarize_page_url(url: str) -> str:
+    parsed = urlparse(url)
+    if not parsed.netloc:
+        return ""
+    return f"{parsed.netloc}{parsed.path}"
 
 
 def _safe_page_title(page) -> str:

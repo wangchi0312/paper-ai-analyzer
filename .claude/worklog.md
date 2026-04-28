@@ -6,6 +6,41 @@
 
 ## 2026-04-28
 
+### 补充：浏览器登录态持久化与审计脱敏
+
+### 做了什么
+- Playwright WoS 浏览器模式改为默认使用持久 profile：`data/browser_profiles/wos`。
+- 将 `data/browser_profiles/*` 加入 `.gitignore`，避免提交 cookie、localStorage 或浏览器缓存。
+- 浏览器无法解析 WoS 记录时，错误信息只记录页面标题和 URL 域名+路径，不保存 query 参数。
+- `fetch_papers` 写入浏览器错误前会再次脱敏 URL，避免 loginId、sid、session 等参数落盘。
+- 已清理当前 `data/processed/fetch_audit.json` 中的完整 Clarivate 登录 URL，仅保留域名+路径。
+
+### 为什么
+- 用户手动点击邮件中的 View citations 可以直接进入 WoS，但 Playwright 默认使用全新临时浏览器 profile，可能缺少用户浏览器里的 WoS/Clarivate/机构认证状态。
+- 真实测试发现审计错误中包含 Clarivate 登录页完整 URL，其中带有邮箱和 session 查询参数，不应保存。
+
+### 影响文件
+- .claude/spec.md
+- .claude/worklog.md
+- .gitignore
+- paper_analyzer/ingestion/wos_browser.py
+- pipeline/fetch_papers.py
+- tests/test_fetch_papers.py
+- tests/test_wos_browser.py
+
+### 验证结果
+- 抓取/浏览器针对性测试：`13 passed`。
+- 语法检查：`py_compile paper_analyzer/ingestion/wos_browser.py pipeline/fetch_papers.py` 通过。
+- 当前本地审计文件已脱敏；数据文件未提交。
+
+### 下一步
+- 若 Playwright 仍进入 Clarivate 登录页，需要在弹出的 Playwright Chromium 中完成一次 WoS/机构认证，让 `data/browser_profiles/wos` 保存访问态。
+- 如果用户希望直接复用日常 Chrome 登录态，需要单独设计“连接用户已打开 Chrome 调试端口”方案，不应直接读取默认 Chrome profile。
+
+---
+
+## 2026-04-28
+
 ### 补充：新增逐封邮件抓取审计
 
 ### 做了什么

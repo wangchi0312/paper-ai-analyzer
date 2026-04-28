@@ -24,7 +24,7 @@ def test_parse_wos_result_page_extracts_record_links():
 
 def test_wait_for_wos_records_reports_login_or_empty_page():
     class FakePage:
-        url = "https://www.webofscience.com/login"
+        url = "https://access.clarivate.com/login?loginId=user@example.com&sid=secret"
 
         def wait_for_selector(self, selector, timeout):
             raise TimeoutError()
@@ -32,5 +32,10 @@ def test_wait_for_wos_records_reports_login_or_empty_page():
         def title(self):
             return "Sign in"
 
-    with pytest.raises(RuntimeError, match="Sign in"):
+    with pytest.raises(RuntimeError) as exc_info:
         _wait_for_wos_records(FakePage(), timeout_ms=1000)
+    message = str(exc_info.value)
+    assert "Sign in" in message
+    assert "access.clarivate.com/login" in message
+    assert "user@example.com" not in message
+    assert "sid=secret" not in message

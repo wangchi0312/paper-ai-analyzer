@@ -16,6 +16,7 @@ build/
 
 # Generated data
 data/debug_emails/*
+data/browser_profiles/*
 data/processed/*.npy
 data/processed/*.json
 data/outputs/*

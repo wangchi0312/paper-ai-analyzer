@@ -168,8 +168,12 @@ def _enrich_or_keep(paper: FetchedPaper) -> FetchedPaper:
 def _format_exception(exc: Exception) -> str:
     message = str(exc).strip()
     if message:
-        return f"{type(exc).__name__}: {message}"
-    return f"{type(exc).__name__}: {repr(exc)}"
+        return f"{type(exc).__name__}: {_sanitize_error_text(message)}"
+    return f"{type(exc).__name__}: {_sanitize_error_text(repr(exc))}"
+
+
+def _sanitize_error_text(text: str) -> str:
+    return re.sub(r"https?://[^\s'\"，；)]+", lambda match: _summarize_url(match.group(0)), text)
 
 
 def _count_new_unique_papers(existing: list[FetchedPaper], candidates: list[FetchedPaper]) -> tuple[int, int]:

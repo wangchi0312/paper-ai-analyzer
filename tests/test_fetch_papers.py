@@ -380,3 +380,15 @@ def test_fetch_papers_records_browser_error_type(monkeypatch):
     audit = json.loads(audit_path.read_text(encoding="utf-8"))
     assert audit["browser_expand_error_count"] == 1
     assert audit["browser_expand_last_error"].startswith("EmptyError:")
+
+
+def test_format_exception_sanitizes_urls():
+    exc = RuntimeError(
+        "failed at https://access.clarivate.com/login?loginId=user@example.com&sid=secret"
+    )
+
+    message = fetch_mod._format_exception(exc)
+
+    assert "access.clarivate.com/login" in message
+    assert "user@example.com" not in message
+    assert "sid=secret" not in message
