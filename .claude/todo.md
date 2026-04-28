@@ -26,6 +26,7 @@
 - [x] 批量 LLM 成本控制：`analyze --source fetch --top-k N`
 - [x] 抓取审计：`fetch-papers` 输出本次邮件数、解析数、去重数等统计
 - [x] 清理旧 smoke test 输出（当前未发现 `data/outputs/smoke/` 目录，无需处理）
+- [x] Streamlit 暴露邮件批量分析入口，支持读取 `fetched_papers.json` 和 `top-k`
 
 ## 后续版本
 

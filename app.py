@@ -3,12 +3,14 @@ import time
 
 import streamlit as st
 
-from pipeline.analyze_papers import analyze_pdf
+from pipeline.analyze_papers import analyze_papers, analyze_pdf
+from pipeline.fetch_papers import load_fetched_papers
 from paper_analyzer.utils.config import load_research_topic
 
 
 INCOMING_DIR = Path("data/incoming_pdfs")
 DEFAULT_PROFILE = Path("data/processed/profile.npy")
+DEFAULT_FETCHED = Path("data/processed/fetched_papers.json")
 
 
 def main() -> None:
@@ -19,6 +21,7 @@ def main() -> None:
     with st.sidebar:
         st.header("参数")
         profile_path = st.text_input("兴趣向量", value=str(DEFAULT_PROFILE))
+        output_root = st.text_input("输出目录", value="data/outputs")
         threshold = st.slider("相关性阈值", min_value=0.0, max_value=1.0, value=0.5, step=0.05)
         provider = st.selectbox("LLM provider", ["deepseek", "siliconflow", "modelscope"], index=0)
         skip_llm = st.checkbox("只计算相似度", value=False)
@@ -26,10 +29,29 @@ def main() -> None:
         max_chars = st.number_input("Embedding 文本长度", min_value=500, max_value=20000, value=4000, step=500)
         llm_max_chars = st.number_input("LLM 文本长度", min_value=1000, max_value=50000, value=12000, step=1000)
 
-    uploaded_file = st.file_uploader("上传 PDF", type=["pdf"])
+    params = {
+        "profile_path": profile_path,
+        "threshold": threshold,
+        "provider": provider,
+        "max_chars": int(max_chars),
+        "llm_max_chars": int(llm_max_chars),
+        "output_root": output_root,
+        "skip_llm": skip_llm,
+        "research_topic": research_topic or None,
+    }
 
-    if not DEFAULT_PROFILE.exists():
-        st.warning("尚未找到默认兴趣向量，请先运行 build_profile.py。")
+    if not Path(profile_path).exists():
+        st.warning("尚未找到兴趣向量，请先运行 build_profile。")
+
+    pdf_tab, batch_tab = st.tabs(["单篇 PDF", "邮件批量"])
+    with pdf_tab:
+        _render_pdf_tab(params)
+    with batch_tab:
+        _render_batch_tab(params)
+
+
+def _render_pdf_tab(params: dict) -> None:
+    uploaded_file = st.file_uploader("上传 PDF", type=["pdf"])
 
     if uploaded_file is None:
         return
@@ -42,13 +64,14 @@ def main() -> None:
             try:
                 output_dir = analyze_pdf(
                     pdf_path=str(saved_pdf),
-                    profile_path=profile_path,
-                    threshold=threshold,
-                    provider=provider,
-                    max_chars=int(max_chars),
-                    llm_max_chars=int(llm_max_chars),
-                    skip_llm=skip_llm,
-                    research_topic=research_topic or None,
+                    profile_path=params["profile_path"],
+                    threshold=params["threshold"],
+                    provider=params["provider"],
+                    max_chars=params["max_chars"],
+                    llm_max_chars=params["llm_max_chars"],
+                    output_root=params["output_root"],
+                    skip_llm=params["skip_llm"],
+                    research_topic=params["research_topic"],
                 )
             except Exception as exc:
                 _cleanup_pdf(saved_pdf)
@@ -56,6 +79,56 @@ def main() -> None:
                 return
 
         st.success(f"分析完成：{output_dir}")
+        _show_result(output_dir)
+
+
+def _render_batch_tab(params: dict) -> None:
+    fetched_path = st.text_input("抓取结果", value=str(DEFAULT_FETCHED))
+    top_k_enabled = st.checkbox("限制 LLM 分析篇数", value=True)
+    top_k_value = st.number_input("Top K", min_value=1, max_value=100, value=5, step=1, disabled=not top_k_enabled)
+    top_k = int(top_k_value) if top_k_enabled else None
+
+    try:
+        fetched_papers = load_fetched_papers(fetched_path)
+    except FileNotFoundError:
+        st.warning("尚未找到抓取结果，请先运行 fetch-papers。")
+        return
+    except Exception as exc:
+        st.error(f"读取抓取结果失败：{exc}")
+        return
+
+    st.metric("待分析论文", len(fetched_papers))
+    preview = [
+        {
+            "标题": paper.title,
+            "期刊": paper.venue or "",
+            "DOI": paper.doi or "",
+        }
+        for paper in fetched_papers[:10]
+    ]
+    if preview:
+        st.dataframe(preview, hide_index=True, use_container_width=True)
+
+    if st.button("开始批量分析", type="primary"):
+        with st.spinner("正在批量分析..."):
+            try:
+                output_dir = analyze_papers(
+                    papers=fetched_papers,
+                    profile_path=params["profile_path"],
+                    threshold=params["threshold"],
+                    provider=params["provider"],
+                    max_chars=params["max_chars"],
+                    llm_max_chars=params["llm_max_chars"],
+                    output_root=params["output_root"],
+                    skip_llm=params["skip_llm"],
+                    research_topic=params["research_topic"],
+                    top_k=top_k,
+                )
+            except Exception as exc:
+                st.error(f"批量分析失败：{exc}")
+                return
+
+        st.success(f"批量分析完成：{output_dir}")
         _show_result(output_dir)
 
 

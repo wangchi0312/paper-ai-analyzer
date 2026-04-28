@@ -6,6 +6,37 @@
 
 ## 2026-04-28
 
+### 补充：Streamlit 邮件批量分析入口
+
+### 做了什么
+- 将 Streamlit 前端拆为“单篇 PDF”和“邮件批量”两个 tab。
+- “邮件批量”支持读取 `data/processed/fetched_papers.json`，展示待分析论文数量和前 10 条预览。
+- 前端批量分析复用现有 `analyze_papers()`，支持 profile、阈值、provider、skip-LLM、研究主题、文本长度、输出目录和 `top-k`。
+- 更新 spec/todo，记录 V1.2 前端范围。
+
+### 为什么
+- V2 已具备 CLI 批量分析能力，但 demo 时只能在命令行查看结果；前端入口能更快展示邮件论文筛选效果。
+- 暂不在前端直接抓真实邮箱，避免 UI 操作误触发邮箱联网或 API 成本。
+
+### 影响文件
+- .claude/spec.md
+- .claude/todo.md
+- .claude/worklog.md
+- app.py
+
+### 验证结果
+- 本地单元测试：`39 passed`。
+- 语法检查：`py_compile app.py main.py pipeline/analyze_papers.py pipeline/fetch_papers.py` 通过。
+- Streamlit 已启动：`http://127.0.0.1:8501`。
+
+### 下一步
+- 在浏览器里检查“邮件批量”tab 的交互和报告展示。
+- 后续可根据 demo 反馈决定是否把 `fetch-papers` 也接入前端，或继续先保持 CLI 抓取。
+
+---
+
+## 2026-04-28
+
 ### 补充：准备 GitHub 首次上传
 
 ### 做了什么

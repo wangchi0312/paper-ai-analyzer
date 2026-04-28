@@ -3,7 +3,7 @@
 更新时间：2026-04-28
 
 ## 1) 当前目标
-稳定推进 V2（邮件抓取与批量分析）同时保持 V1/V1.1 可用。当前已完成 V2 最小 CLI 闭环、top-k 成本控制、抓取审计和网页补全失败回退，下一步应做真实邮箱联调与输出质量检查。
+稳定推进 V2（邮件抓取与批量分析）同时保持 V1/V1.1 可用。当前已完成 V2 最小 CLI 闭环、top-k 成本控制、抓取审计、网页补全失败回退和 Streamlit 邮件批量分析入口，下一步应做真实邮箱联调与输出质量检查。
 
 ## 2) 已完成（可验证）
 - V1 CLI 主流程已实现：构建兴趣向量、单篇分析、JSON/Markdown 输出。
@@ -15,6 +15,7 @@
 - 邮件抓取结果保存到 `data/processed/fetched_papers.json`，批量分析可从该文件读取。
 - 邮件抓取审计保存到 `data/processed/fetch_audit.json`，记录邮件数、解析论文数、去重数等统计。
 - 网页补全失败时会保留邮件解析内容，不中断整批抓取。
+- Streamlit 前端已新增“邮件批量”tab，可读取 `fetched_papers.json` 并复用 `analyze_papers()` 批量输出报告。
 - `requirements.txt` 已按当前 Conda 环境锁定版本。
 - 单元测试已覆盖 fetch 结果读写/去重/审计/网页补全回退、邮件 HTML 正文提取、邮件论文批量分析无 LLM 路径。
 - 协作规则已统一：需求变化先更新 spec；切换 Agent 前更新 handoff/worklog。
@@ -26,7 +27,7 @@ P0：真实邮箱联调
 
 P1：工程质量收口
 - `data/outputs/smoke/` 当前未发现对应目录，无需清理
-- 根据用户反馈决定是否将 `--top-k` 暴露到 Streamlit 前端
+- 在浏览器检查 Streamlit “邮件批量”tab 的实际交互和报告展示
 
 P2：V2 连通性增强
 - 真实网络下检查 `enrich_from_web()` 对 WoS 页面补全摘要的稳定性。
@@ -45,6 +46,7 @@ P2：V2 连通性增强
 - .claude/worklog.md（追加 2026-04-27 开发记录）
 - .claude/worklog.md（追加 2026-04-28 抓取审计与网页补全回退记录）
 - .gitignore、README.md、AGENTS.md、CLAUDE.md（准备 GitHub 首次上传）
+- app.py（新增 Streamlit “邮件批量”tab，支持 `top-k`）
 - main.py（新增 V2 命令入口）
 - main.py（`fetch-papers` / `run` 新增 `--audit-output`）
 - pipeline/analyze_papers.py（新增 FetchedPaper 批量分析）

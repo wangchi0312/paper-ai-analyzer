@@ -24,6 +24,14 @@ V1 暂不包含：
 
 V1.1 实现 Streamlit 前端，支持拖拽/选择 PDF、供应商选择、参数配置和结果展示。
 
+V1.2 Streamlit 前端补充邮件抓取结果批量分析入口：
+
+1. 前端提供“单篇 PDF”和“邮件批量”两个入口。
+2. “邮件批量”读取 `fetch-papers` 已保存的 `data/processed/fetched_papers.json`。
+3. 支持配置 profile、阈值、provider、skip-LLM、LLM 文本长度、研究主题和 top-k。
+4. 点击分析后调用现有 `analyze_papers()`，输出 JSON 与 Markdown 报告。
+5. 前端暂不直接连接 QQ 邮箱抓取邮件；真实邮箱抓取仍先通过 CLI 完成。
+
 V2 最小闭环继续保持 KISS 原则，先实现可测试的 CLI 流程：
 
 1. `fetch-papers` 从 QQ 邮箱读取 WoS Citation Alert 邮件，解析为 `FetchedPaper` 列表。
@@ -172,7 +180,7 @@ D:\software\anaconda\envs\paper-ai\python.exe -m streamlit run app.py
 D:\software\anaconda\envs\paper-ai\python.exe -m streamlit run app.py
 ```
 
-第一版前端只做单篇 PDF 分析：
+第一版前端支持单篇 PDF 分析：
 
 1. 上传或拖拽一个 PDF。
 2. 保存到 `data/incoming_pdfs/`。
@@ -183,12 +191,21 @@ D:\software\anaconda\envs\paper-ai\python.exe -m streamlit run app.py
 7. 点击开始分析。
 8. 页面展示相似度、LLM 状态、报告内容和输出目录。
 
+邮件批量分析入口：
+
+1. 读取 `data/processed/fetched_papers.json` 或用户指定路径。
+2. 展示待分析论文数量。
+3. 可选择只计算相似度。
+4. 可设置 `top-k`，限制只有最相关的前 N 篇触发 LLM。
+5. 页面展示批量报告内容和输出目录。
+
 第一版前端暂不做：
 
 - 批量上传
 - 历史报告管理
 - Zotero 文献浏览器
 - API key 页面输入
+- 前端内直接抓取真实邮箱
 
 ### 构建兴趣向量
 
