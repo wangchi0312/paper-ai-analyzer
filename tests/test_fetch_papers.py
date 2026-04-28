@@ -117,6 +117,11 @@ def test_fetch_papers_writes_audit(monkeypatch):
     assert audit["output_path"] == str(output_path)
     assert audit["checked_email_count"] == 2
     assert audit["matched_wos_email_count"] == 2
+    assert [item["subject"] for item in audit["email_details"]] == [
+        "Web of Science Alert",
+        "Web of Science Alert",
+    ]
+    assert [item["email_parsed_paper_count"] for item in audit["email_details"]] == [2, 2]
 
 
 def test_fetch_papers_keeps_email_content_when_web_enrich_fails(monkeypatch):
@@ -286,6 +291,10 @@ def test_fetch_papers_uses_browser_when_requests_expansion_empty(monkeypatch):
     assert audit["browser_expand_error_count"] == 0
     assert audit["browser_expand_last_error"] is None
     assert browser_max_pages_seen == [12]
+    assert audit["email_details"][0]["email_parsed_paper_count"] == 1
+    assert audit["email_details"][0]["browser_expanded_paper_count"] == 1
+    assert audit["email_details"][0]["browser_new_unique_paper_count"] == 1
+    assert audit["email_details"][0]["alert_links"][0]["url_summary"] == "wos.example/summary"
 
 
 def test_fetch_papers_counts_browser_duplicates(monkeypatch):
@@ -331,6 +340,7 @@ def test_fetch_papers_counts_browser_duplicates(monkeypatch):
     assert audit["browser_expanded_paper_count"] == 1
     assert audit["browser_new_unique_paper_count"] == 0
     assert audit["browser_duplicate_paper_count"] == 1
+    assert audit["email_details"][0]["browser_duplicate_paper_count"] == 1
 
 
 def test_fetch_papers_records_browser_error_type(monkeypatch):

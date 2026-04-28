@@ -88,6 +88,7 @@ class FetchAudit:
     browser_duplicate_paper_count: int = 0
     browser_expand_error_count: int = 0
     browser_expand_last_error: str | None = None
+    email_details: list[dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass

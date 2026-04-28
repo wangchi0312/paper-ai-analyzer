@@ -4,6 +4,7 @@ from datetime import datetime
 import json
 import re
 from pathlib import Path
+from urllib.parse import urlparse
 
 from paper_analyzer.data.schema import FetchAudit, FetchedPaper
 from paper_analyzer.ingestion.email_reader import fetch_wos_emails_with_stats
@@ -41,17 +42,43 @@ def fetch_papers(
     browser_duplicate_paper_count = 0
     browser_expand_error_count = 0
     browser_expand_last_error: str | None = None
+    email_details: list[dict] = []
 
-    for message_id, _subject, html in emails:
+    for message_id, subject, html in emails:
         parsed = parse_wos_email(html, source_email_id=message_id)
+        email_detail = {
+            "message_id": message_id,
+            "subject": subject,
+            "email_parsed_paper_count": len(parsed),
+            "alert_summary_link_count": 0,
+            "requests_expanded_paper_count": 0,
+            "browser_expanded_paper_count": 0,
+            "browser_new_unique_paper_count": 0,
+            "browser_duplicate_paper_count": 0,
+            "browser_expand_error_count": 0,
+            "browser_expand_last_error": None,
+            "alert_links": [],
+        }
         for paper in parsed:
             papers.append(paper if no_web else _enrich_or_keep(paper))
         if expand_alert_pages:
             summary_links = extract_alert_summary_links(html)
             alert_summary_link_count += len(summary_links)
-            for link in summary_links:
+            email_detail["alert_summary_link_count"] = len(summary_links)
+            for link_index, link in enumerate(summary_links, start=1):
+                link_detail = {
+                    "index": link_index,
+                    "url_summary": _summarize_url(link),
+                    "requests_expanded_paper_count": 0,
+                    "browser_expanded_paper_count": 0,
+                    "browser_new_unique_paper_count": 0,
+                    "browser_duplicate_paper_count": 0,
+                    "browser_error": None,
+                }
                 expanded = _fetch_alert_summary_papers(link, source_email_id=message_id)
                 expanded_paper_count += len(expanded)
+                email_detail["requests_expanded_paper_count"] += len(expanded)
+                link_detail["requests_expanded_paper_count"] = len(expanded)
                 if use_browser and not expanded:
                     try:
                         browser_expanded = fetch_wos_alert_with_browser(
@@ -63,14 +90,25 @@ def fetch_papers(
                         logger.warning("浏览器模式扩展 WoS 结果失败：%s (%s)", link, exc)
                         browser_expand_error_count += 1
                         browser_expand_last_error = _format_exception(exc)
+                        email_detail["browser_expand_error_count"] += 1
+                        email_detail["browser_expand_last_error"] = browser_expand_last_error
+                        link_detail["browser_error"] = browser_expand_last_error
                         browser_expanded = []
                     browser_expanded_paper_count += len(browser_expanded)
                     new_unique, duplicate = _count_new_unique_papers(papers, browser_expanded)
                     browser_new_unique_paper_count += new_unique
                     browser_duplicate_paper_count += duplicate
+                    email_detail["browser_expanded_paper_count"] += len(browser_expanded)
+                    email_detail["browser_new_unique_paper_count"] += new_unique
+                    email_detail["browser_duplicate_paper_count"] += duplicate
+                    link_detail["browser_expanded_paper_count"] = len(browser_expanded)
+                    link_detail["browser_new_unique_paper_count"] = new_unique
+                    link_detail["browser_duplicate_paper_count"] = duplicate
                     expanded.extend(browser_expanded)
+                email_detail["alert_links"].append(link_detail)
                 for paper in expanded:
                     papers.append(paper if no_web else _enrich_or_keep(paper))
+        email_details.append(email_detail)
 
     parsed_paper_count = len(papers)
     papers = deduplicate_papers(papers)
@@ -98,6 +136,7 @@ def fetch_papers(
             browser_duplicate_paper_count=browser_duplicate_paper_count,
             browser_expand_error_count=browser_expand_error_count,
             browser_expand_last_error=browser_expand_last_error,
+            email_details=email_details,
         ),
         audit_output_path,
     )
@@ -148,6 +187,13 @@ def _count_new_unique_papers(existing: list[FetchedPaper], candidates: list[Fetc
         seen.add(key)
         new_unique += 1
     return new_unique, duplicate
+
+
+def _summarize_url(url: str) -> str:
+    parsed = urlparse(url)
+    if not parsed.netloc:
+        return ""
+    return f"{parsed.netloc}{parsed.path}"
 
 
 def _fetch_alert_summary_papers(url: str, source_email_id: str | None = None) -> list[FetchedPaper]:

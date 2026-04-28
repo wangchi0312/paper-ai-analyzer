@@ -6,6 +6,39 @@
 
 ## 2026-04-28
 
+### 补充：新增逐封邮件抓取审计
+
+### 做了什么
+- `fetch_audit.json` 新增 `email_details`。
+- 每封邮件记录：message id、subject、邮件正文解析论文数、AlertSummary 链接数、requests 扩展数、浏览器扩展数、新增唯一数、重复数、错误数。
+- 每个 Alert 链接记录：链接序号、URL 域名+路径摘要、requests 扩展数、浏览器扩展数、新增唯一数、重复数、错误。
+- URL 审计只保存域名和路径，不保存 query/session 参数。
+
+### 为什么
+- 用户确认最近两封 WoS 邮件应合计 73 篇，但实际 `max_emails=2` 只得到 9 篇唯一候选。
+- 总量审计无法判断是选错了两封邮件、邮件正文本身只包含少量论文，还是 WoS 完整页解析没有到达 50/23 的结果页。
+
+### 影响文件
+- .claude/spec.md
+- .claude/worklog.md
+- paper_analyzer/data/schema.py
+- pipeline/fetch_papers.py
+- tests/test_fetch_papers.py
+
+### 验证结果
+- 抓取相关针对性测试：`15 passed`。
+- 语法检查：`py_compile pipeline/fetch_papers.py paper_analyzer/data/schema.py paper_analyzer/ingestion/wos_browser.py paper_analyzer/ingestion/wos_parser.py` 通过。
+- 未运行全量测试；本次只改抓取审计路径。
+
+### 下一步
+- 用户重新运行抓取后，查看 `email_details` 中每封邮件的 subject 和每个 Alert 链接扩展数量。
+- 若 subject 不是用户期望的两封 Alert，则需要增加按主题/关键词选择邮件的能力。
+- 若 subject 正确但每个链接只扩展少量记录，则继续适配 WoS 50 条列表页的真实 DOM 或接口请求。
+
+---
+
+## 2026-04-28
+
 ### 补充：支持只验证抓取和全文下载
 
 ### 做了什么
