@@ -65,6 +65,11 @@
 ### 下一步
 - 需要用户提供一个可用授权方式：安装并登录 GitHub CLI、配置 GitHub SSH key，或在 GitHub 手动创建空仓库后从交互终端推送。
 
+### 后续反馈
+- 用户已在 PowerShell 中成功执行 `git push -u origin main`，远端 `main` 分支已建立并跟踪 `origin/main`。
+- 用户确认已撤销聊天中暴露过的 PAT。
+- 当前 Codex 非交互环境再次执行 `git push` 仍无法读取 GitHub 用户名；后续同步 GitHub 暂由用户在本地 PowerShell 执行，或另行配置非交互凭据。
+
 ---
 
 ## 2026-04-28
