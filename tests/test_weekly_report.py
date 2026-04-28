@@ -9,6 +9,8 @@ def test_build_weekly_report_with_analysis():
         title="Adaptive PINN",
         link="https://example.com",
         score=0.91,
+        full_text_path="data/outputs/run/papers/01.pdf",
+        full_text_source="unpaywall",
         analysis=PaperAnalysis.from_dict(
             {
                 "first_author": "A",
@@ -42,6 +44,8 @@ def test_build_weekly_report_with_analysis():
     assert "Adaptive PINN" in report
     assert "0.9100" in report
     assert "directly relevant" in report
+    assert "data/outputs/run/papers/01.pdf" in report
+    assert "来源：unpaywall" in report
 
 
 def test_build_weekly_report_without_analysis():

@@ -3,7 +3,7 @@
 更新时间：2026-04-28
 
 ## 1) 当前目标
-稳定推进 V2（邮件抓取与批量分析）同时保持 V1/V1.1 可用。当前已完成 V2 最小 CLI 闭环、top-k 成本控制、抓取审计、网页补全失败回退、Streamlit 邮件批量分析入口、文献周报输出、飞书 webhook 推送基础能力和 Streamlit 一键周报入口。下一步应做真实端到端联调。
+稳定推进 V2（邮件抓取与批量分析）同时保持 V1/V1.1 可用。当前已完成 V2 最小 CLI 闭环、top-k 成本控制、抓取审计、网页补全失败回退、Streamlit 邮件批量分析入口、文献周报输出、飞书 webhook 推送基础能力、Streamlit 一键周报入口和 top-k 全文获取基础层。下一步应做校园网/学校 VPN 下的真实全文下载联调。
 
 ## 2) 已完成（可验证）
 - V1 CLI 主流程已实现：构建兴趣向量、单篇分析、JSON/Markdown 输出。
@@ -20,6 +20,8 @@
 - 飞书自定义机器人 webhook 推送已实现基础文本推送，支持可选签名密钥。
 - Streamlit “一键周报”tab 可在前端填写 LLM/邮箱/飞书配置，并串联抓取、分析、生成周报和可选飞书推送；敏感配置仅在当前进程临时使用，不写入文件。
 - 邮件批量深度解读现在会把标题、作者、期刊/会议、DOI、链接和摘要一起给 LLM，并用邮件元数据回填基础字段，减少周报中的“未识别”。
+- `paper_analyzer/fulltext/` 已实现基础全文获取：publisher PDF 直链、Unpaywall、Semantic Scholar、arXiv 候选解析和 PDF 下载。
+- `analyze_papers(download_full_text=True)` 只对达到阈值且进入 top-k 的论文尝试下载全文；成功后基于 PDF 全文深读，失败则标记“全文获取失败”并跳过深读。
 - `requirements.txt` 已按当前 Conda 环境锁定版本。
 - 单元测试已覆盖 fetch 结果读写/去重/审计/网页补全回退、邮件 HTML 正文提取、邮件论文批量分析无 LLM 路径。
 - 协作规则已统一：需求变化先更新 spec；切换 Agent 前更新 handoff/worklog。
@@ -27,7 +29,7 @@
 ## 3) 未完成（按优先级）
 P0：真实邮箱联调
 - 使用真实 QQ 邮箱授权码运行 `fetch-papers --no-web`，确认 WoS Citation Alert 解析结果。
-- 再运行 `analyze --source fetch --skip-llm` 检查批量报告内容。
+- 在校园网/学校 VPN 环境下运行“一键周报”，检查 top-k 论文全文下载命中率、失败原因和飞书周报内容。
 
 P1：工程质量收口
 - `data/outputs/smoke/` 当前未发现对应目录，无需清理
@@ -56,6 +58,8 @@ P2：V2 连通性增强
 - .env.example（新增飞书 webhook 占位）
 - pipeline/analyze_papers.py（邮件论文 LLM 输入加入元数据，并回填基础字段）
 - paper_analyzer/report/weekly.py（缺失字段展示为“需打开原文确认”）
+- paper_analyzer/fulltext/（新增全文 resolver/downloader/source）
+- main.py、app.py（新增全文下载相关入口参数）
 - main.py（新增 V2 命令入口）
 - main.py（`fetch-papers` / `run` 新增 `--audit-output`）
 - pipeline/analyze_papers.py（新增 FetchedPaper 批量分析）
@@ -84,7 +88,7 @@ P2：V2 连通性增强
 - 成本受控批量 LLM：`python main.py analyze --source fetch --top-k 5`
   - 预期：只对相似度最高的 5 篇触发 LLM，其余论文仍输出分数和跳过原因
 - 测试：`pytest -q`
-  - 预期：当前为 `43 passed`
+  - 预期：当前为 `50 passed`
 - 真实 LLM 单篇分析：`python main.py analyze --pdf data/profile_pdfs/AdaptiveAF_Paper.pdf --profile data/processed/profile_codex_verify.npy --output-root data/outputs/codex_verify_llm --llm-max-chars 4000`
   - 已验证输出：`data/outputs/codex_verify_llm/20260427_191746`
 

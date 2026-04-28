@@ -1,4 +1,5 @@
 import argparse
+from datetime import datetime
 from pathlib import Path
 
 import numpy as np
@@ -7,6 +8,7 @@ from paper_analyzer.data.schema import FetchedPaper, Paper
 from paper_analyzer.embedding.embedder import Embedder
 from paper_analyzer.embedding.similarity import cosine_similarity
 from paper_analyzer.llm.analyzer import Analyzer
+from paper_analyzer.fulltext.resolver import resolve_full_text
 from paper_analyzer.pdf.parser import extract_text, extract_title
 from paper_analyzer.pdf.text_selector import select_representative_text
 from paper_analyzer.report.writer import write_outputs
@@ -24,6 +26,8 @@ def analyze_papers(
     skip_llm: bool = False,
     research_topic: str | None = None,
     top_k: int | None = None,
+    download_full_text: bool = False,
+    unpaywall_email: str | None = None,
 ) -> Path:
     if not papers:
         raise ValueError("没有可分析的论文")
@@ -46,6 +50,11 @@ def analyze_papers(
         for index, embedding in enumerate(embeddings)
     ]
     llm_allowed_indexes = _select_top_k_indexes(scored_items, top_k)
+    explicit_output_dir = None
+    fulltext_dir = None
+    if download_full_text:
+        explicit_output_dir = Path(output_root) / datetime.now().strftime("%Y%m%d_%H%M%S")
+        fulltext_dir = explicit_output_dir / "papers"
 
     for index, (fetched, selected_text, embedding) in enumerate(zip(papers, analysis_inputs, embeddings)):
         score = scored_items[index][1]
@@ -69,9 +78,32 @@ def analyze_papers(
             paper.skipped_reason = f"相似度 {score:.4f} 达到阈值，但未进入 top-{top_k}"
         else:
             try:
+                llm_text = _build_fetch_llm_text(fetched, max_chars=llm_max_chars)
+                if download_full_text:
+                    assert fulltext_dir is not None
+                    fulltext_result = resolve_full_text(
+                        fetched,
+                        output_dir=fulltext_dir,
+                        index=index + 1,
+                        unpaywall_email=unpaywall_email,
+                    )
+                    paper.full_text_status = "downloaded" if fulltext_result.success else "failed"
+                    paper.full_text_source = fulltext_result.source
+                    paper.full_text_path = fulltext_result.path
+                    if not fulltext_result.success:
+                        paper.skipped_reason = f"全文获取失败：{fulltext_result.reason}"
+                        analyzed.append(paper)
+                        continue
+                    full_text = extract_text(fulltext_result.path)
+                    if not full_text.strip():
+                        paper.skipped_reason = "全文下载成功，但无法提取有效文本"
+                        analyzed.append(paper)
+                        continue
+                    paper.full_text = full_text
+                    paper.selected_text = full_text[:max_chars]
+                    llm_text = full_text[:llm_max_chars]
                 if analyzer is None:
                     analyzer = Analyzer(provider=provider)
-                llm_text = _build_fetch_llm_text(fetched, max_chars=llm_max_chars)
                 paper.analysis = analyzer.analyze(llm_text, research_topic=research_topic)
                 _fill_analysis_metadata_from_fetch(paper.analysis, fetched)
             except Exception as exc:
@@ -79,7 +111,12 @@ def analyze_papers(
 
         analyzed.append(paper)
 
-    return write_outputs(analyzed, output_root=output_root, research_topic=research_topic)
+    return write_outputs(
+        analyzed,
+        output_root=output_root,
+        research_topic=research_topic,
+        output_dir=explicit_output_dir,
+    )
 
 
 def analyze_pdf(
@@ -207,6 +244,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--skip-llm", action="store_true", help="只计算相似度，不调用 LLM")
     parser.add_argument("--research-topic", default=None, help="研究主题，覆盖 .env 中的 RESEARCH_TOPIC")
     parser.add_argument("--top-k", type=int, default=None, help="只允许相似度最高的前 N 篇触发 LLM")
+    parser.add_argument("--download-full-text", action="store_true", help="邮件批量模式下下载全文后再深度解读")
+    parser.add_argument("--unpaywall-email", default=None, help="Unpaywall 查询邮箱，用于开放获取全文查找")
     return parser.parse_args()
 
 
@@ -227,6 +266,8 @@ def main() -> None:
             skip_llm=args.skip_llm,
             research_topic=args.research_topic,
             top_k=args.top_k,
+            download_full_text=args.download_full_text,
+            unpaywall_email=args.unpaywall_email,
         )
     else:
         if not args.pdf:

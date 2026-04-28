@@ -44,6 +44,7 @@ def build_weekly_report(
                     f"- 来源：{_display_or_note(analysis.venue)}",
                     f"- DOI：{_display_or_note(analysis.doi)}",
                     f"- 链接：{paper.link or '未提供'}",
+                    f"- 全文：{_full_text_line(paper)}",
                     f"- 核心问题：{_display_or_note(analysis.core_problem)}",
                     f"- 主要贡献：{_display_or_note(analysis.field_contribution)}",
                     f"- 与我研究的关联：{_display_or_note(analysis.relevance_to_my_research)}",
@@ -77,6 +78,7 @@ def build_weekly_report(
                     "",
                     f"- 作者：{_author_summary(analysis.first_author, analysis.second_author)}",
                     f"- 发表信息：{_publication_summary(analysis.publication_year, analysis.venue)}",
+                    f"- 全文文件：{_full_text_line(paper)}",
                     f"- 方法：{_display_or_note(analysis.key_methods)}",
                     f"- 发现：{_display_or_note(analysis.core_findings)}",
                     f"- 结论：{_display_or_note(analysis.main_conclusions)}",
@@ -108,6 +110,15 @@ def _score_text(paper: Paper) -> str:
 
 def _escape_table(text: str) -> str:
     return text.replace("|", "\\|").replace("\n", " ")
+
+
+def _full_text_line(paper: Paper) -> str:
+    if paper.full_text_path:
+        source = f"（来源：{paper.full_text_source}）" if paper.full_text_source else ""
+        return f"{paper.full_text_path}{source}"
+    if paper.full_text_status == "failed":
+        return "全文获取失败"
+    return "未下载"
 
 
 def _display_or_note(value: str) -> str:

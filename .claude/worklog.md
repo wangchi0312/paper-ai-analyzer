@@ -6,6 +6,54 @@
 
 ## 2026-04-28
 
+### 补充：全文获取基础层与 top-k 全文深读
+
+### 做了什么
+- 新增 `paper_analyzer/fulltext/`：
+  - `source.py`：全文获取结果结构。
+  - `downloader.py`：PDF 下载、PDF 内容校验和安全文件名。
+  - `resolver.py`：publisher PDF 直链、Unpaywall、Semantic Scholar、arXiv 候选全文 URL 解析。
+- `Paper` 增加 `full_text_path`、`full_text_source`、`full_text_status` 字段。
+- `analyze_papers()` 新增 `download_full_text` 和 `unpaywall_email` 参数。
+- 开启全文下载时，只对达到阈值且进入 top-k 的论文下载全文；下载成功后解析 PDF 全文并基于全文做 LLM 深读；下载失败则记录“全文获取失败”并跳过深读。
+- 周报中展示全文文件路径和来源。
+- Streamlit “一键周报”默认启用全文下载；邮件批量页可手动开启。
+
+### 为什么
+- 用户明确要求最终周报必须基于全文，不应基于 WoS/QQ 邮件摘要做深度解读。
+- 用户场景是最新文献追踪，默认不能假设本地已有 PDF，因此必须自动下载 top-k 全文。
+
+### 影响文件
+- .claude/spec.md
+- .claude/todo.md
+- .claude/worklog.md
+- app.py
+- main.py
+- pipeline/analyze_papers.py
+- paper_analyzer/data/schema.py
+- paper_analyzer/fulltext/__init__.py
+- paper_analyzer/fulltext/source.py
+- paper_analyzer/fulltext/downloader.py
+- paper_analyzer/fulltext/resolver.py
+- paper_analyzer/report/weekly.py
+- paper_analyzer/report/writer.py
+- tests/test_analyze_fetched_papers.py
+- tests/test_fulltext_resolver.py
+- tests/test_weekly_report.py
+
+### 验证结果
+- 本地单元测试：`50 passed`。
+- 语法检查：`py_compile app.py main.py pipeline/analyze_papers.py pipeline/fetch_papers.py paper_analyzer/fulltext/resolver.py paper_analyzer/fulltext/downloader.py paper_analyzer/report/weekly.py` 通过。
+- 未执行真实出版社/Unpaywall/Semantic Scholar/arXiv 下载。
+
+### 下一步
+- 在校园网或学校 VPN 环境下真实跑一键周报，检查 top-k 全文下载命中率和失败原因。
+- 如果开放获取和出版社直链命中率不足，再实现用户配置的 Google Scholar 镜像 resolver。
+
+---
+
+## 2026-04-28
+
 ### 补充：修正周报架构为“候选筛选后获取全文”
 
 ### 做了什么

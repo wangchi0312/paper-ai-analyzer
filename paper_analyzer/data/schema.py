@@ -91,6 +91,9 @@ class Paper:
     analysis: PaperAnalysis | None = None
     skipped_reason: str | None = None
     source_email_id: str | None = None
+    full_text_path: str | None = None
+    full_text_source: str | None = None
+    full_text_status: str | None = None
 
     def to_dict(self, include_full_text: bool = False, include_embedding: bool = False) -> dict[str, Any]:
         data = asdict(self)

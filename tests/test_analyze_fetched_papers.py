@@ -5,6 +5,7 @@ from pathlib import Path
 import numpy as np
 
 from paper_analyzer.data.schema import FetchedPaper
+from paper_analyzer.fulltext.source import FullTextResult
 from pipeline import analyze_papers as analyze_mod
 
 
@@ -193,3 +194,73 @@ def test_analyze_fetched_papers_uses_metadata_for_llm_and_backfill(monkeypatch):
     assert analysis["second_author"] == "Bob"
     assert analysis["venue"] == "Journal X"
     assert analysis["doi"] == "10.1/meta"
+
+
+def test_analyze_fetched_papers_downloads_full_text_before_llm(monkeypatch):
+    tmp_path = _make_tmp_dir("analyze_fetched_fulltext")
+    profile_path = tmp_path / "profile.npy"
+    np.save(profile_path, np.array([1.0, 0.0]))
+    monkeypatch.setattr(analyze_mod, "Embedder", FakeEmbedder)
+    monkeypatch.setattr(analyze_mod, "Analyzer", MetadataAwareFakeAnalyzer)
+    monkeypatch.setattr(
+        analyze_mod,
+        "resolve_full_text",
+        lambda paper, output_dir, index, unpaywall_email: FullTextResult(
+            success=True,
+            path=str(output_dir / "paper.pdf"),
+            source="test",
+            url="https://example.com/paper.pdf",
+        ),
+    )
+    monkeypatch.setattr(
+        analyze_mod,
+        "extract_text",
+        lambda path: "标题：Metadata Paper\n作者：Alice; Bob\n期刊/会议：Journal X\nDOI：10.1/meta\nfull text body",
+    )
+
+    output_dir = analyze_mod.analyze_papers(
+        papers=[
+            FetchedPaper(
+                title="Metadata Paper",
+                abstract="abstract",
+                doi="10.1/meta",
+                authors="Alice; Bob",
+                venue="Journal X",
+            )
+        ],
+        profile_path=str(profile_path),
+        threshold=0.0,
+        output_root=str(tmp_path / "outputs"),
+        download_full_text=True,
+    )
+
+    results = json.loads((output_dir / "results.json").read_text(encoding="utf-8"))
+    assert results[0]["full_text_status"] == "downloaded"
+    assert results[0]["full_text_source"] == "test"
+    assert results[0]["full_text_path"].endswith("paper.pdf")
+    assert results[0]["analysis"]["paper_title"] == "Metadata Paper"
+
+
+def test_analyze_fetched_papers_skips_llm_when_full_text_download_fails(monkeypatch):
+    tmp_path = _make_tmp_dir("analyze_fetched_fulltext_fail")
+    profile_path = tmp_path / "profile.npy"
+    np.save(profile_path, np.array([1.0, 0.0]))
+    monkeypatch.setattr(analyze_mod, "Embedder", FakeEmbedder)
+    monkeypatch.setattr(
+        analyze_mod,
+        "resolve_full_text",
+        lambda paper, output_dir, index, unpaywall_email: FullTextResult(success=False, reason="not found"),
+    )
+
+    output_dir = analyze_mod.analyze_papers(
+        papers=[FetchedPaper(title="No PDF", abstract="abstract")],
+        profile_path=str(profile_path),
+        threshold=0.0,
+        output_root=str(tmp_path / "outputs"),
+        download_full_text=True,
+    )
+
+    results = json.loads((output_dir / "results.json").read_text(encoding="utf-8"))
+    assert results[0]["analysis"] is None
+    assert results[0]["full_text_status"] == "failed"
+    assert results[0]["skipped_reason"] == "全文获取失败：not found"

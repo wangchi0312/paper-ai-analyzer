@@ -91,6 +91,8 @@ def _render_weekly_tab(params: dict) -> None:
             top_k = st.number_input("深度解读 Top K", min_value=1, max_value=50, value=5, step=1)
 
         no_web = st.checkbox("跳过网页补全，只使用邮件内容", value=True)
+        download_full_text = st.checkbox("下载全文后再深度解读", value=True)
+        unpaywall_email = st.text_input("Unpaywall 查询邮箱", value=email_address, help="用于查询开放获取全文，可填常用邮箱。")
         push_to_feishu = st.checkbox("生成后推送到飞书", value=False)
         feishu_webhook = ""
         feishu_secret = ""
@@ -145,6 +147,8 @@ def _render_weekly_tab(params: dict) -> None:
                     skip_llm=False,
                     research_topic=params["research_topic"],
                     top_k=int(top_k),
+                    download_full_text=download_full_text,
+                    unpaywall_email=unpaywall_email or email_address,
                 )
             if push_to_feishu:
                 send_feishu_text(
@@ -199,6 +203,8 @@ def _render_batch_tab(params: dict) -> None:
     top_k_enabled = st.checkbox("限制 LLM 分析篇数", value=True)
     top_k_value = st.number_input("Top K", min_value=1, max_value=100, value=5, step=1, disabled=not top_k_enabled)
     top_k = int(top_k_value) if top_k_enabled else None
+    download_full_text = st.checkbox("下载全文后再深度解读", value=False)
+    unpaywall_email = st.text_input("Unpaywall 查询邮箱（可选）")
     push_to_feishu = st.checkbox("生成后推送到飞书", value=False)
     feishu_webhook = ""
     feishu_secret = ""
@@ -241,6 +247,8 @@ def _render_batch_tab(params: dict) -> None:
                     skip_llm=params["skip_llm"],
                     research_topic=params["research_topic"],
                     top_k=top_k,
+                    download_full_text=download_full_text,
+                    unpaywall_email=unpaywall_email or None,
                 )
             except Exception as exc:
                 st.error(f"批量分析失败：{exc}")

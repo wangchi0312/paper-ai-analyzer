@@ -10,8 +10,9 @@ def write_outputs(
     papers: list[Paper],
     output_root: str = "data/outputs",
     research_topic: str | None = None,
+    output_dir: Path | None = None,
 ) -> Path:
-    output_dir = Path(output_root) / datetime.now().strftime("%Y%m%d_%H%M%S")
+    output_dir = output_dir or Path(output_root) / datetime.now().strftime("%Y%m%d_%H%M%S")
     output_dir.mkdir(parents=True, exist_ok=True)
 
     results_path = output_dir / "results.json"

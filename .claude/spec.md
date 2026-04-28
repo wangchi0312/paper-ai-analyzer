@@ -92,6 +92,9 @@ V2.2 全文获取与深度解读目标：
 6. 前端输入的 API key、邮箱授权码、飞书 webhook 只在当前运行进程中临时使用，不写入代码、`.env` 或提交历史。
 7. 邮件批量深度解读会把标题、作者、期刊/会议、DOI、链接和摘要一起提供给 LLM，并在 LLM 返回“未识别”时用邮件元数据回填基础字段。
 8. 周报展示会将仍无法确认的字段写为“邮件/摘要中未提供，需打开原文确认”，避免大段机械的“未识别”。
+9. 已新增全文获取基础层：`paper_analyzer/fulltext/` 支持 publisher PDF 直链、Unpaywall、Semantic Scholar、arXiv 候选 URL 解析和 PDF 下载。
+10. `analyze_papers(download_full_text=True)` 会只对达到阈值且进入 top-k 的论文尝试下载全文；下载成功后用 PDF 全文进入 LLM 深度解读，下载失败则标记“全文获取失败”并跳过深读。
+11. Streamlit “一键周报”默认启用“下载全文后再深度解读”；邮件批量页可手动开启。
 
 V2 最小闭环继续保持 KISS 原则，先实现可测试的 CLI 流程：
 
