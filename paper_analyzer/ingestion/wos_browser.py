@@ -65,6 +65,16 @@ def _wait_for_wos_records(page, timeout_ms: int) -> None:
             return
         except Exception:
             continue
+    title = _safe_page_title(page)
+    current_url = getattr(page, "url", "")
+    raise RuntimeError(f"页面已打开但未发现 WoS 记录链接；title={title!r}；url={current_url!r}")
+
+
+def _safe_page_title(page) -> str:
+    try:
+        return page.title()
+    except Exception:
+        return ""
 
 
 def _is_probable_title(text: str) -> bool:

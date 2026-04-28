@@ -6,6 +6,36 @@
 
 ## 2026-04-28
 
+### 补充：修复浏览器扩展错误为空
+
+### 做了什么
+- 浏览器模式扩展失败时，`browser_expand_last_error` 改为记录异常类型和异常内容。
+- 如果 WoS 页面打开后没有发现记录链接，明确抛出包含页面标题和当前 URL 的错误。
+- 新增测试覆盖空异常字符串和登录页/空页诊断。
+
+### 为什么
+- 用户真实运行时 `browser_expand_error_count=5`，但 `browser_expand_last_error=""`，无法判断失败原因。
+- 下一轮真实运行需要能区分缺依赖、浏览器启动失败、WoS 登录页、学校认证页或页面结构变化。
+
+### 影响文件
+- .claude/spec.md
+- .claude/worklog.md
+- paper_analyzer/ingestion/wos_browser.py
+- pipeline/fetch_papers.py
+- tests/test_fetch_papers.py
+- tests/test_wos_browser.py
+
+### 验证结果
+- 本地单元测试：`59 passed`。
+- 语法检查：`py_compile pipeline/fetch_papers.py paper_analyzer/ingestion/wos_browser.py paper_analyzer/data/schema.py` 通过。
+
+### 下一步
+- 用户重新运行一键周报后，查看 `browser_expand_last_error` 的具体内容，再决定是否需要持久浏览器登录态或 WoS API。
+
+---
+
+## 2026-04-28
+
 ### 补充：增加 WoS 完整页浏览器解析模式
 
 ### 做了什么

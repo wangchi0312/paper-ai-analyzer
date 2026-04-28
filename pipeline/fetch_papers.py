@@ -55,7 +55,7 @@ def fetch_papers(
                     except Exception as exc:
                         logger.warning("浏览器模式扩展 WoS 结果失败：%s (%s)", link, exc)
                         browser_expand_error_count += 1
-                        browser_expand_last_error = str(exc)
+                        browser_expand_last_error = _format_exception(exc)
                         browser_expanded = []
                     browser_expanded_paper_count += len(browser_expanded)
                     expanded.extend(browser_expanded)
@@ -111,6 +111,13 @@ def _enrich_or_keep(paper: FetchedPaper) -> FetchedPaper:
     except Exception as exc:
         logger.warning("网页补全失败，保留邮件内容：%s (%s)", paper.title, exc)
         return paper
+
+
+def _format_exception(exc: Exception) -> str:
+    message = str(exc).strip()
+    if message:
+        return f"{type(exc).__name__}: {message}"
+    return f"{type(exc).__name__}: {repr(exc)}"
 
 
 def _fetch_alert_summary_papers(url: str, source_email_id: str | None = None) -> list[FetchedPaper]:
