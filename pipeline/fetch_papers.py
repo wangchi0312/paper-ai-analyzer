@@ -22,8 +22,9 @@ def fetch_papers(
     no_web: bool = False,
     output_path: str = DEFAULT_FETCHED_PAPERS_PATH,
     audit_output_path: str = DEFAULT_FETCH_AUDIT_PATH,
+    ignore_seen: bool = False,
 ) -> list[FetchedPaper]:
-    emails = fetch_wos_emails(since_date=since_date, max_emails=max_emails)
+    emails = fetch_wos_emails(since_date=since_date, max_emails=max_emails, ignore_seen=ignore_seen)
     papers: list[FetchedPaper] = []
 
     for message_id, _subject, html in emails:
@@ -123,6 +124,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--no-web", action="store_true", help="跳过网页补全，只使用邮件内容")
     parser.add_argument("--output", default=DEFAULT_FETCHED_PAPERS_PATH, help="抓取结果保存路径")
     parser.add_argument("--audit-output", default=DEFAULT_FETCH_AUDIT_PATH, help="抓取审计保存路径")
+    parser.add_argument("--ignore-seen", action="store_true", help="重新扫描已处理过的 WoS 邮件")
     return parser.parse_args()
 
 
@@ -134,6 +136,7 @@ def main() -> None:
         no_web=args.no_web,
         output_path=args.output,
         audit_output_path=args.audit_output,
+        ignore_seen=args.ignore_seen,
     )
     print(f"已获取论文 {len(papers)} 篇，保存到：{args.output}")
 

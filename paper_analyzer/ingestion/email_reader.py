@@ -65,6 +65,7 @@ def fetch_wos_emails(
     max_emails: int = 50,
     config: EmailConfig | None = None,
     seen_emails_path: str = "data/processed/seen_emails.json",
+    ignore_seen: bool = False,
 ) -> list[tuple[str, str, str]]:
     """Fetch WoS Citation Alert emails from QQ mailbox.
 
@@ -74,7 +75,7 @@ def fetch_wos_emails(
         config = load_email_config()
 
     seen_path = Path(seen_emails_path)
-    seen_ids = _load_seen_message_ids(seen_path)
+    seen_ids = set() if ignore_seen else _load_seen_message_ids(seen_path)
 
     imap = None
     try:
@@ -106,7 +107,7 @@ def fetch_wos_emails(
                 # 提取 Message-ID 检查是否已处理
                 msg_id_raw = msg_data[0][1].decode("utf-8", errors="replace")
                 msg_id_match = _extract_message_id(msg_id_raw)
-                if msg_id_match and msg_id_match in seen_ids:
+                if not ignore_seen and msg_id_match and msg_id_match in seen_ids:
                     logger.debug("跳过已处理邮件：%s", msg_id_match)
                     continue
                 wos_ids.append(mid)
@@ -141,7 +142,7 @@ def fetch_wos_emails(
                 logger.warning("邮件无 HTML 正文：%s", subject[:60])
 
         # 保存已处理邮件 ID
-        if new_seen_ids:
+        if new_seen_ids and not ignore_seen:
             seen_ids.update(new_seen_ids)
             _save_seen_message_ids(seen_path, seen_ids)
             logger.info("已保存 %d 个已处理邮件 ID", len(new_seen_ids))

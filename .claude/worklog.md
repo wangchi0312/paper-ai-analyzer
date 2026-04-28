@@ -6,6 +6,38 @@
 
 ## 2026-04-28
 
+### 补充：修复重复测试时没有可分析论文
+
+### 做了什么
+- `fetch_wos_emails()` 新增 `ignore_seen` 参数。
+- `fetch-papers`、`run`、Streamlit 一键周报新增“重新扫描已处理邮件”能力。
+- 开启重扫时不读取也不更新 `seen_emails.json`，适合调试或重复生成同一批周报。
+- 一键周报抓取结果为空时，不再直接抛出“没有可分析的论文”，而是在前端提示可能原因和重试方式。
+
+### 为什么
+- 用户测试时出现“周报生成失败：没有可分析的论文”。
+- 根因大概率是上一轮测试已经把 WoS 邮件写入 `seen_emails.json`，再次运行时所有邮件被跳过。
+
+### 影响文件
+- .claude/spec.md
+- .claude/worklog.md
+- app.py
+- main.py
+- pipeline/fetch_papers.py
+- paper_analyzer/ingestion/email_reader.py
+- tests/test_fetch_papers.py
+
+### 验证结果
+- 本地单元测试：`51 passed`。
+- 语法检查：`py_compile app.py main.py pipeline/fetch_papers.py paper_analyzer/ingestion/email_reader.py` 通过。
+
+### 下一步
+- 用户可在“一键周报”中勾选“重新扫描已处理邮件”后重试。
+
+---
+
+## 2026-04-28
+
 ### 补充：全文获取基础层与 top-k 全文深读
 
 ### 做了什么

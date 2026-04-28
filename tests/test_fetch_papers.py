@@ -71,7 +71,7 @@ def test_fetch_papers_writes_audit(monkeypatch):
     monkeypatch.setattr(
         fetch_mod,
         "fetch_wos_emails",
-        lambda since_date, max_emails: [
+        lambda since_date, max_emails, ignore_seen=False: [
             ("<1@example.com>", "Web of Science Alert", "<html>1</html>"),
             ("<2@example.com>", "Web of Science Alert", "<html>2</html>"),
         ],
@@ -113,7 +113,7 @@ def test_fetch_papers_keeps_email_content_when_web_enrich_fails(monkeypatch):
     monkeypatch.setattr(
         fetch_mod,
         "fetch_wos_emails",
-        lambda since_date, max_emails: [
+        lambda since_date, max_emails, ignore_seen=False: [
             ("<1@example.com>", "Web of Science Alert", "<html>1</html>"),
         ],
     )
@@ -141,3 +141,32 @@ def test_fetch_papers_keeps_email_content_when_web_enrich_fails(monkeypatch):
     assert papers[0].title == "Fallback Paper"
     assert papers[0].abstract == "from email"
     assert json.loads(output_path.read_text(encoding="utf-8"))[0]["title"] == "Fallback Paper"
+
+
+def test_fetch_papers_passes_ignore_seen(monkeypatch):
+    tmp_dir = _make_tmp_dir("fetch_ignore_seen")
+    output_path = tmp_dir / "fetched.json"
+    audit_path = tmp_dir / "audit.json"
+    calls = []
+
+    def fake_fetch_wos_emails(since_date, max_emails, ignore_seen=False):
+        calls.append(ignore_seen)
+        return [("<1@example.com>", "Web of Science Alert", "<html>1</html>")]
+
+    monkeypatch.setattr(fetch_mod, "fetch_wos_emails", fake_fetch_wos_emails)
+    monkeypatch.setattr(
+        fetch_mod,
+        "parse_wos_email",
+        lambda html, source_email_id: [
+            FetchedPaper(title="Paper", abstract="abstract", source_email_id=source_email_id),
+        ],
+    )
+
+    fetch_mod.fetch_papers(
+        ignore_seen=True,
+        no_web=True,
+        output_path=str(output_path),
+        audit_output_path=str(audit_path),
+    )
+
+    assert calls == [True]
