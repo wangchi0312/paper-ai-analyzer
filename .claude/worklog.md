@@ -6,6 +6,38 @@
 
 ## 2026-04-28
 
+### 补充：减少周报深度解读中的“未识别”
+
+### 做了什么
+- 修复邮件批量分析时 LLM 输入信息不足的问题：现在深度解读输入包含标题、作者、期刊/会议、DOI、链接和摘要。
+- LLM 返回“未识别”时，使用 `FetchedPaper` 中的作者、期刊、DOI、标题回填 `PaperAnalysis` 基础字段。
+- 周报展示层不再直接大段展示“未识别”，改为“邮件/摘要中未提供，需打开原文确认”。
+- 新增测试覆盖元数据传入 LLM、基础字段回填和周报缺失字段展示。
+
+### 为什么
+- 用户实际测试发现周报“逐篇深度解读”中大量作者、期刊、方法、发现、结论为“未识别”。
+- 根因是邮件模式只有摘要/标题，且之前没有把邮件解析到的元数据传给 LLM，也没有在分析结果中回填基础元数据。
+
+### 影响文件
+- .claude/spec.md
+- .claude/worklog.md
+- pipeline/analyze_papers.py
+- paper_analyzer/report/weekly.py
+- tests/test_analyze_fetched_papers.py
+- tests/test_weekly_report.py
+
+### 验证结果
+- 本地单元测试：`45 passed`。
+- 语法检查：`py_compile app.py main.py pipeline/analyze_papers.py pipeline/fetch_papers.py paper_analyzer/report/weekly.py paper_analyzer/notification/feishu.py` 通过。
+
+### 下一步
+- 重新用真实“一键周报”跑一遍，观察作者、期刊、DOI 和逐篇解读质量是否明显改善。
+- 若方法/发现/结论仍偏空，需要进一步改 Prompt：要求模型基于摘要做“摘要级解读”，而不是过度保守填“未识别”。
+
+---
+
+## 2026-04-28
+
 ### 补充：Streamlit 一键周报入口
 
 ### 做了什么

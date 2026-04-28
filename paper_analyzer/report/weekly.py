@@ -41,13 +41,13 @@ def build_weekly_report(
                     f"### {index}. {paper.title}",
                     "",
                     f"- 相关性分数：{_score_text(paper)}",
-                    f"- 来源：{analysis.venue}",
-                    f"- DOI：{analysis.doi}",
+                    f"- 来源：{_display_or_note(analysis.venue)}",
+                    f"- DOI：{_display_or_note(analysis.doi)}",
                     f"- 链接：{paper.link or '未提供'}",
-                    f"- 核心问题：{analysis.core_problem}",
-                    f"- 主要贡献：{analysis.field_contribution}",
-                    f"- 与我研究的关联：{analysis.relevance_to_my_research}",
-                    f"- 建议关注点：{analysis.highlights}",
+                    f"- 核心问题：{_display_or_note(analysis.core_problem)}",
+                    f"- 主要贡献：{_display_or_note(analysis.field_contribution)}",
+                    f"- 与我研究的关联：{_display_or_note(analysis.relevance_to_my_research)}",
+                    f"- 建议关注点：{_display_or_note(analysis.highlights)}",
                     "",
                 ]
             )
@@ -75,12 +75,12 @@ def build_weekly_report(
                 [
                     f"### {index}. {paper.title}",
                     "",
-                    f"- 作者：{analysis.first_author}；通讯作者：{analysis.corresponding_author}",
-                    f"- 发表信息：{analysis.publication_year}，{analysis.venue}",
-                    f"- 方法：{analysis.key_methods}",
-                    f"- 发现：{analysis.core_findings}",
-                    f"- 结论：{analysis.main_conclusions}",
-                    f"- 局限：{analysis.limitations}",
+                    f"- 作者：{_author_summary(analysis.first_author, analysis.second_author)}",
+                    f"- 发表信息：{_publication_summary(analysis.publication_year, analysis.venue)}",
+                    f"- 方法：{_display_or_note(analysis.key_methods)}",
+                    f"- 发现：{_display_or_note(analysis.core_findings)}",
+                    f"- 结论：{_display_or_note(analysis.main_conclusions)}",
+                    f"- 局限：{_display_or_note(analysis.limitations)}",
                     "",
                 ]
             )
@@ -108,3 +108,27 @@ def _score_text(paper: Paper) -> str:
 
 def _escape_table(text: str) -> str:
     return text.replace("|", "\\|").replace("\n", " ")
+
+
+def _display_or_note(value: str) -> str:
+    if _is_unknown(value):
+        return "邮件/摘要中未提供，需打开原文确认"
+    return value
+
+
+def _author_summary(first_author: str, second_author: str) -> str:
+    authors = [author for author in [first_author, second_author] if not _is_unknown(author)]
+    if not authors:
+        return "邮件/摘要中未提供，需打开原文确认"
+    return "；".join(authors)
+
+
+def _publication_summary(publication_year: str, venue: str) -> str:
+    parts = [part for part in [publication_year, venue] if not _is_unknown(part)]
+    if not parts:
+        return "邮件/摘要中未提供，需打开原文确认"
+    return "，".join(parts)
+
+
+def _is_unknown(value: str | None) -> bool:
+    return not value or value.strip() in {"未识别", "未提供", "unknown", "Unknown", "N/A"}

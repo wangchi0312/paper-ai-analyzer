@@ -71,7 +71,9 @@ def analyze_papers(
             try:
                 if analyzer is None:
                     analyzer = Analyzer(provider=provider)
-                paper.analysis = analyzer.analyze(selected_text[:llm_max_chars], research_topic=research_topic)
+                llm_text = _build_fetch_llm_text(fetched, max_chars=llm_max_chars)
+                paper.analysis = analyzer.analyze(llm_text, research_topic=research_topic)
+                _fill_analysis_metadata_from_fetch(paper.analysis, fetched)
             except Exception as exc:
                 paper.skipped_reason = f"LLM 分析未完成：{exc}"
 
@@ -138,6 +140,47 @@ def _select_fetch_text(paper: FetchedPaper, max_chars: int) -> str:
     if not text:
         raise ValueError("邮件论文缺少标题和摘要，无法分析")
     return text[:max_chars]
+
+
+def _build_fetch_llm_text(paper: FetchedPaper, max_chars: int) -> str:
+    parts = [
+        f"标题：{paper.title}",
+        f"作者：{paper.authors or '未提供'}",
+        f"期刊/会议：{paper.venue or '未提供'}",
+        f"DOI：{paper.doi or '未提供'}",
+        f"链接：{paper.link or '未提供'}",
+        "",
+        "摘要：",
+        (paper.abstract or "未提供").strip(),
+    ]
+    text = "\n".join(parts).strip()
+    if not text:
+        raise ValueError("邮件论文缺少标题和摘要，无法分析")
+    return text[:max_chars]
+
+
+def _fill_analysis_metadata_from_fetch(analysis, paper: FetchedPaper) -> None:
+    if _is_unknown(analysis.paper_title):
+        analysis.paper_title = paper.title
+    if paper.venue and _is_unknown(analysis.venue):
+        analysis.venue = paper.venue
+    if paper.doi and _is_unknown(analysis.doi):
+        analysis.doi = paper.doi
+    if paper.authors:
+        authors = _split_authors(paper.authors)
+        if authors and _is_unknown(analysis.first_author):
+            analysis.first_author = authors[0]
+        if len(authors) > 1 and _is_unknown(analysis.second_author):
+            analysis.second_author = authors[1]
+
+
+def _split_authors(authors: str) -> list[str]:
+    normalized = authors.replace("；", ";").replace("，", ";").replace(",", ";")
+    return [item.strip() for item in normalized.split(";") if item.strip()]
+
+
+def _is_unknown(value: str | None) -> bool:
+    return not value or value.strip() in {"未识别", "未提供", "unknown", "Unknown", "N/A"}
 
 
 def _select_top_k_indexes(scored_items: list[tuple[int, float]], top_k: int | None) -> set[int]:

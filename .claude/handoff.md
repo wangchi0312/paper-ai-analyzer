@@ -19,6 +19,7 @@
 - 统一输出层已新增 `weekly_report.md`，Streamlit 优先展示周报。
 - 飞书自定义机器人 webhook 推送已实现基础文本推送，支持可选签名密钥。
 - Streamlit “一键周报”tab 可在前端填写 LLM/邮箱/飞书配置，并串联抓取、分析、生成周报和可选飞书推送；敏感配置仅在当前进程临时使用，不写入文件。
+- 邮件批量深度解读现在会把标题、作者、期刊/会议、DOI、链接和摘要一起给 LLM，并用邮件元数据回填基础字段，减少周报中的“未识别”。
 - `requirements.txt` 已按当前 Conda 环境锁定版本。
 - 单元测试已覆盖 fetch 结果读写/去重/审计/网页补全回退、邮件 HTML 正文提取、邮件论文批量分析无 LLM 路径。
 - 协作规则已统一：需求变化先更新 spec；切换 Agent 前更新 handoff/worklog。
@@ -30,7 +31,7 @@ P0：真实邮箱联调
 
 P1：工程质量收口
 - `data/outputs/smoke/` 当前未发现对应目录，无需清理
-- 在浏览器检查 Streamlit “一键周报”tab 的实际交互和报告展示
+- 重新真实生成一篇周报，检查“逐篇深度解读”是否仍有过多“未识别”
 
 P2：V2 连通性增强
 - 真实网络下检查 `enrich_from_web()` 对 WoS 页面补全摘要的稳定性。
@@ -53,6 +54,8 @@ P2：V2 连通性增强
 - app.py（优先展示 `weekly_report.md`，邮件批量分析后可推送飞书）
 - app.py（新增 Streamlit “一键周报”tab）
 - .env.example（新增飞书 webhook 占位）
+- pipeline/analyze_papers.py（邮件论文 LLM 输入加入元数据，并回填基础字段）
+- paper_analyzer/report/weekly.py（缺失字段展示为“需打开原文确认”）
 - main.py（新增 V2 命令入口）
 - main.py（`fetch-papers` / `run` 新增 `--audit-output`）
 - pipeline/analyze_papers.py（新增 FetchedPaper 批量分析）

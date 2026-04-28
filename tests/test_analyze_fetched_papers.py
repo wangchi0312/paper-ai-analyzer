@@ -48,6 +48,29 @@ class FakeAnalyzer:
         )
 
 
+class MetadataAwareFakeAnalyzer:
+    def __init__(self, provider=None):
+        self.provider = provider
+
+    def analyze(self, text, research_topic=None):
+        from paper_analyzer.data.schema import PaperAnalysis
+
+        assert "标题：Metadata Paper" in text
+        assert "作者：Alice; Bob" in text
+        assert "期刊/会议：Journal X" in text
+        assert "DOI：10.1/meta" in text
+        return PaperAnalysis.from_dict(
+            {
+                "paper_title": "未识别",
+                "first_author": "未识别",
+                "second_author": "未识别",
+                "venue": "未识别",
+                "doi": "未识别",
+                "core_hypotheses": ["H"],
+            }
+        )
+
+
 def _make_tmp_dir(name: str) -> Path:
     path = Path("data/outputs/test_tmp") / name
     if path.exists():
@@ -137,3 +160,36 @@ def test_analyze_fetched_papers_top_k_limits_llm(monkeypatch):
     assert results[1]["analysis"] is not None
     assert results[2]["analysis"] is None
     assert results[2]["skipped_reason"] == "相似度 0.6000 达到阈值，但未进入 top-2"
+
+
+def test_analyze_fetched_papers_uses_metadata_for_llm_and_backfill(monkeypatch):
+    tmp_path = _make_tmp_dir("analyze_fetched_metadata")
+    profile_path = tmp_path / "profile.npy"
+    np.save(profile_path, np.array([1.0, 0.0]))
+    monkeypatch.setattr(analyze_mod, "Embedder", FakeEmbedder)
+    monkeypatch.setattr(analyze_mod, "Analyzer", MetadataAwareFakeAnalyzer)
+
+    papers = [
+        FetchedPaper(
+            title="Metadata Paper",
+            abstract="abstract",
+            doi="10.1/meta",
+            authors="Alice; Bob",
+            venue="Journal X",
+        )
+    ]
+
+    output_dir = analyze_mod.analyze_papers(
+        papers=papers,
+        profile_path=str(profile_path),
+        threshold=0.0,
+        output_root=str(tmp_path / "outputs"),
+    )
+
+    results = json.loads((output_dir / "results.json").read_text(encoding="utf-8"))
+    analysis = results[0]["analysis"]
+    assert analysis["paper_title"] == "Metadata Paper"
+    assert analysis["first_author"] == "Alice"
+    assert analysis["second_author"] == "Bob"
+    assert analysis["venue"] == "Journal X"
+    assert analysis["doi"] == "10.1/meta"
