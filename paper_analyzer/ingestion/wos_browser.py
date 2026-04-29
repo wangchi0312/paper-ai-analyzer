@@ -13,6 +13,80 @@ CLARIVATE_EMAIL_ENV = "CLARIVATE_EMAIL"
 CLARIVATE_PASSWORD_ENV = "CLARIVATE_PASSWORD"
 
 
+class WosBrowserSession:
+    def __init__(
+        self,
+        timeout_ms: int = 30000,
+        headless: bool = False,
+        max_pages: int = 20,
+        browser_profile_dir: str | None = DEFAULT_BROWSER_PROFILE_DIR,
+        manual_login_wait_seconds: int = 0,
+    ) -> None:
+        self.timeout_ms = timeout_ms
+        self.headless = headless
+        self.max_pages = max_pages
+        self.browser_profile_dir = browser_profile_dir
+        self.manual_login_wait_seconds = manual_login_wait_seconds
+        self._playwright = None
+        self._context = None
+        self._browser = None
+        self._page = None
+
+    def __enter__(self) -> "WosBrowserSession":
+        _prepare_playwright_runtime()
+        try:
+            from playwright.sync_api import sync_playwright
+        except ImportError as exc:
+            raise RuntimeError("缺少 playwright，请先安装 playwright 并执行 playwright install chromium。") from exc
+
+        self._playwright = sync_playwright().start()
+        try:
+            if self.browser_profile_dir:
+                self._context = self._playwright.chromium.launch_persistent_context(
+                    user_data_dir=str(Path(self.browser_profile_dir)),
+                    headless=self.headless,
+                )
+                self._page = self._context.new_page()
+            else:
+                self._browser = self._playwright.chromium.launch(headless=self.headless)
+                self._page = self._browser.new_page()
+        except NotImplementedError as exc:
+            self.__exit__(type(exc), exc, exc.__traceback__)
+            raise RuntimeError(
+                "Playwright 启动浏览器子进程失败。若在 Streamlit/Windows 中运行，"
+                "请重启前端进程后再试；仍失败时改用命令行运行 fetch-papers 验证浏览器模式。"
+            ) from exc
+        return self
+
+    def __exit__(self, exc_type, exc, traceback) -> None:
+        if self._context is not None:
+            self._context.close()
+            self._context = None
+        if self._browser is not None:
+            self._browser.close()
+            self._browser = None
+        if self._playwright is not None:
+            self._playwright.stop()
+            self._playwright = None
+        self._page = None
+
+    def fetch_alert(self, url: str, source_email_id: str | None = None) -> list[FetchedPaper]:
+        if self._page is None:
+            raise RuntimeError("浏览器会话尚未启动。")
+        _goto_wos_url(self._page, url, timeout_ms=self.timeout_ms)
+        _wait_for_wos_records_or_login(
+            self._page,
+            timeout_ms=self.timeout_ms,
+            manual_login_wait_seconds=self.manual_login_wait_seconds,
+        )
+        return _collect_wos_records_across_pages(
+            self._page,
+            source_email_id=source_email_id,
+            timeout_ms=self.timeout_ms,
+            max_pages=self.max_pages,
+        )
+
+
 def fetch_wos_alert_with_browser(
     url: str,
     source_email_id: str | None = None,
@@ -22,60 +96,14 @@ def fetch_wos_alert_with_browser(
     browser_profile_dir: str | None = DEFAULT_BROWSER_PROFILE_DIR,
     manual_login_wait_seconds: int = 0,
 ) -> list[FetchedPaper]:
-    _prepare_playwright_runtime()
-    try:
-        from playwright.sync_api import sync_playwright
-    except ImportError as exc:
-        raise RuntimeError("缺少 playwright，请先安装 playwright 并执行 playwright install chromium。") from exc
-
-    try:
-        with sync_playwright() as playwright:
-            if browser_profile_dir:
-                context = playwright.chromium.launch_persistent_context(
-                    user_data_dir=str(Path(browser_profile_dir)),
-                    headless=headless,
-                )
-                try:
-                    page = context.new_page()
-                    _goto_wos_url(page, url, timeout_ms=timeout_ms)
-                    _wait_for_wos_records_or_login(
-                        page,
-                        timeout_ms=timeout_ms,
-                        manual_login_wait_seconds=manual_login_wait_seconds,
-                    )
-                    papers = _collect_wos_records_across_pages(
-                        page,
-                        source_email_id=source_email_id,
-                        timeout_ms=timeout_ms,
-                        max_pages=max_pages,
-                    )
-                finally:
-                    context.close()
-            else:
-                browser = playwright.chromium.launch(headless=headless)
-                try:
-                    page = browser.new_page()
-                    _goto_wos_url(page, url, timeout_ms=timeout_ms)
-                    _wait_for_wos_records_or_login(
-                        page,
-                        timeout_ms=timeout_ms,
-                        manual_login_wait_seconds=manual_login_wait_seconds,
-                    )
-                    papers = _collect_wos_records_across_pages(
-                        page,
-                        source_email_id=source_email_id,
-                        timeout_ms=timeout_ms,
-                        max_pages=max_pages,
-                    )
-                finally:
-                    browser.close()
-    except NotImplementedError as exc:
-        raise RuntimeError(
-            "Playwright 启动浏览器子进程失败。若在 Streamlit/Windows 中运行，"
-            "请重启前端进程后再试；仍失败时改用命令行运行 fetch-papers 验证浏览器模式。"
-        ) from exc
-
-    return papers
+    with WosBrowserSession(
+        timeout_ms=timeout_ms,
+        headless=headless,
+        max_pages=max_pages,
+        browser_profile_dir=browser_profile_dir,
+        manual_login_wait_seconds=manual_login_wait_seconds,
+    ) as session:
+        return session.fetch_alert(url, source_email_id=source_email_id)
 
 
 def _goto_wos_url(page, url: str, timeout_ms: int) -> None:

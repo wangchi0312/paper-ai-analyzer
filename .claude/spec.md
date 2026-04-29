@@ -120,6 +120,7 @@ V2 最小闭环继续保持 KISS 原则，先实现可测试的 CLI 流程：
 18. 邮箱抓取阶段必须区分 WoS Citation Alert 和 Clarivate 账户通知邮件。`password reset`、`password changed` 等账户邮件即使来自 Web of Science/Clarivate，也不能占用 `max_emails` 的 Citation Alert 名额；抓取审计需要记录跳过的非 Alert 邮件数量。
 19. WoS 完整 AlertSummary 的真实验证以用户校园网/学校 VPN 环境为准。用户可以手动运行前端或 CLI 测试抓取与全文下载，Agent 后续只读取本地结果文件反馈问题：优先检查 `data/processed/fetch_audit.json`、`data/processed/fetched_papers.json` 和最新 `data/outputs/<timestamp>/results.json` / `weekly_report.md`。调试阶段默认开启“只验证抓取和全文下载，不调用 LLM”，避免不必要的模型 API 调用。
 20. 浏览器模式遇到 Clarivate/WoS/机构登录页时，需要支持用户在弹出的 Playwright Chromium 中手动完成登录并等待返回结果页。等待时长应在前端和 CLI 可配置，并写入抓取审计；默认 0 秒以避免无人值守运行被长时间阻塞。WoS gateway 跳转过程中出现短暂 `net::ERR_ABORTED` 或 frame detached 时，不应立即判定失败，应继续等待当前页面并检查是否已进入记录页或登录页。
+21. 前端一键周报运行时必须展示阶段性状态，至少包含邮箱抓取、逐封邮件解析、WoS 完整页扩展、候选数量、全文下载/跳过 LLM、输出目录等信息。浏览器模式在同一次抓取任务内应复用同一个 Playwright Chromium 上下文，避免每个 Alert 链接重复弹出和关闭浏览器。
 
 后续版本暂缓需求：
 

@@ -265,16 +265,21 @@ def test_fetch_papers_uses_browser_when_requests_expansion_empty(monkeypatch):
     browser_max_pages_seen = []
     manual_login_wait_seconds_seen = []
 
-    def browser_fetch(url, source_email_id, max_pages, manual_login_wait_seconds=0):
-        browser_max_pages_seen.append(max_pages)
-        manual_login_wait_seconds_seen.append(manual_login_wait_seconds)
-        return [FetchedPaper(title="Browser Paper", abstract="", source_email_id=source_email_id)]
+    class FakeBrowserSession:
+        def __init__(self, max_pages, manual_login_wait_seconds):
+            browser_max_pages_seen.append(max_pages)
+            manual_login_wait_seconds_seen.append(manual_login_wait_seconds)
 
-    monkeypatch.setattr(
-        fetch_mod,
-        "fetch_wos_alert_with_browser",
-        browser_fetch,
-    )
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, traceback):
+            return None
+
+        def fetch_alert(self, url, source_email_id):
+            return [FetchedPaper(title="Browser Paper", abstract="", source_email_id=source_email_id)]
+
+    monkeypatch.setattr(fetch_mod, "WosBrowserSession", FakeBrowserSession)
 
     papers = fetch_mod.fetch_papers(
         no_web=True,
@@ -325,13 +330,20 @@ def test_fetch_papers_counts_browser_duplicates(monkeypatch):
     )
     monkeypatch.setattr(fetch_mod, "extract_alert_summary_links", lambda html: ["https://wos.example/summary"])
     monkeypatch.setattr(fetch_mod, "_fetch_alert_summary_papers", lambda url, source_email_id: [])
-    monkeypatch.setattr(
-        fetch_mod,
-        "fetch_wos_alert_with_browser",
-        lambda url, source_email_id, max_pages, manual_login_wait_seconds=0: [
-            FetchedPaper(title="Same Paper", abstract="", source_email_id=source_email_id),
-        ],
-    )
+    class FakeBrowserSession:
+        def __init__(self, max_pages, manual_login_wait_seconds):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, traceback):
+            return None
+
+        def fetch_alert(self, url, source_email_id):
+            return [FetchedPaper(title="Same Paper", abstract="", source_email_id=source_email_id)]
+
+    monkeypatch.setattr(fetch_mod, "WosBrowserSession", FakeBrowserSession)
 
     papers = fetch_mod.fetch_papers(
         no_web=True,
@@ -370,10 +382,20 @@ def test_fetch_papers_records_browser_error_type(monkeypatch):
         def __str__(self) -> str:
             return ""
 
-    def raise_empty_error(url, source_email_id, max_pages, manual_login_wait_seconds=0):
-        raise EmptyError()
+    class FakeBrowserSession:
+        def __init__(self, max_pages, manual_login_wait_seconds):
+            pass
 
-    monkeypatch.setattr(fetch_mod, "fetch_wos_alert_with_browser", raise_empty_error)
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, traceback):
+            return None
+
+        def fetch_alert(self, url, source_email_id):
+            raise EmptyError()
+
+    monkeypatch.setattr(fetch_mod, "WosBrowserSession", FakeBrowserSession)
 
     fetch_mod.fetch_papers(
         no_web=True,
@@ -386,6 +408,63 @@ def test_fetch_papers_records_browser_error_type(monkeypatch):
     audit = json.loads(audit_path.read_text(encoding="utf-8"))
     assert audit["browser_expand_error_count"] == 1
     assert audit["browser_expand_last_error"].startswith("EmptyError:")
+
+
+def test_fetch_papers_reuses_one_browser_session_for_multiple_alert_links(monkeypatch):
+    tmp_dir = _make_tmp_dir("fetch_browser_reuse")
+    output_path = tmp_dir / "fetched.json"
+    audit_path = tmp_dir / "audit.json"
+
+    monkeypatch.setattr(
+        fetch_mod,
+        "fetch_wos_emails_with_stats",
+        lambda since_date, max_emails, ignore_seen=False: (
+            [("<1@example.com>", "Web of Science Alert", "<html>email</html>")],
+            _email_stats(1),
+        ),
+    )
+    monkeypatch.setattr(fetch_mod, "parse_wos_email", lambda html, source_email_id: [])
+    monkeypatch.setattr(
+        fetch_mod,
+        "extract_alert_summary_links",
+        lambda html: ["https://wos.example/summary/1", "https://wos.example/summary/2"],
+    )
+    monkeypatch.setattr(fetch_mod, "_fetch_alert_summary_papers", lambda url, source_email_id: [])
+    events = []
+
+    class FakeBrowserSession:
+        def __init__(self, max_pages, manual_login_wait_seconds):
+            events.append("init")
+
+        def __enter__(self):
+            events.append("enter")
+            return self
+
+        def __exit__(self, exc_type, exc, traceback):
+            events.append("exit")
+
+        def fetch_alert(self, url, source_email_id):
+            events.append(url)
+            return [FetchedPaper(title=f"Paper {url[-1]}", abstract="", source_email_id=source_email_id)]
+
+    monkeypatch.setattr(fetch_mod, "WosBrowserSession", FakeBrowserSession)
+
+    papers = fetch_mod.fetch_papers(
+        no_web=True,
+        expand_alert_pages=True,
+        use_browser=True,
+        output_path=str(output_path),
+        audit_output_path=str(audit_path),
+    )
+
+    assert [paper.title for paper in papers] == ["Paper 1", "Paper 2"]
+    assert events == [
+        "init",
+        "enter",
+        "https://wos.example/summary/1",
+        "https://wos.example/summary/2",
+        "exit",
+    ]
 
 
 def test_format_exception_sanitizes_urls():

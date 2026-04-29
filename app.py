@@ -136,6 +136,15 @@ def _render_weekly_tab(params: dict) -> None:
         st.error("请填写飞书机器人 Webhook。")
         return
 
+    status_placeholder = st.empty()
+    log_placeholder = st.empty()
+    progress_messages: list[str] = []
+
+    def report_progress(message: str) -> None:
+        progress_messages.append(f"{time.strftime('%H:%M:%S')}  {message}")
+        status_placeholder.info(message)
+        log_placeholder.code("\n".join(progress_messages[-80:]))
+
     with st.spinner("正在抓取邮件、分析论文并生成周报..."):
         try:
             with _temporary_runtime_env(
@@ -158,11 +167,13 @@ def _render_weekly_tab(params: dict) -> None:
                     use_browser=use_browser,
                     browser_max_pages=int(browser_max_pages),
                     browser_manual_login_wait_seconds=int(browser_manual_login_wait_seconds),
+                    progress_callback=report_progress,
                 )
                 if not fetched:
                     st.error("没有抓取到可分析的论文。请查看下方抓取审计，判断是没有扫到 WoS 邮件、邮件已处理，还是邮件解析失败。")
                     _show_fetch_audit(DEFAULT_AUDIT)
                     return
+                report_progress(f"候选抓取完成，共 {len(fetched)} 篇；开始相似度筛选和全文处理")
                 output_dir = analyze_papers(
                     papers=fetched,
                     profile_path=params["profile_path"],
@@ -176,20 +187,27 @@ def _render_weekly_tab(params: dict) -> None:
                     top_k=int(top_k),
                     download_full_text=download_full_text,
                     unpaywall_email=unpaywall_email or email_address,
+                    progress_callback=report_progress,
                 )
             if push_to_feishu:
+                report_progress("开始推送飞书")
                 send_feishu_text(
                     webhook_url=feishu_webhook,
                     text=(output_dir / "weekly_report.md").read_text(encoding="utf-8"),
                     secret=feishu_secret or None,
                 )
         except Exception as exc:
+            report_progress(f"任务失败：{exc}")
             st.error(f"周报生成失败：{exc}")
+            if DEFAULT_AUDIT.exists():
+                _show_fetch_audit(DEFAULT_AUDIT)
             return
 
+    report_progress("任务完成")
     st.success(f"周报生成完成：{output_dir}")
     if push_to_feishu:
         st.success("已推送到飞书。")
+    _show_fetch_audit(DEFAULT_AUDIT)
     _show_result(output_dir)
 
 

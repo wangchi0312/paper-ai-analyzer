@@ -4,6 +4,40 @@
 
 ---
 
+## 2026-04-29
+
+### 补充：前端进度日志与浏览器窗口复用
+
+### 做了什么
+- 前端一键周报运行时新增状态日志区，不再只显示一个无限转圈提示。
+- 抓取流程新增 `progress_callback`，向前端回报邮箱扫描、逐封邮件解析、WoS 完整页扩展、浏览器扩展结果、抓取审计保存等阶段。
+- 批量分析流程新增 `progress_callback`，向前端回报相似度计算、top-k 跳过、全文下载、跳过 LLM、输出目录等阶段。
+- 浏览器模式改为同一次 `fetch_papers()` 内复用一个 `WosBrowserSession`，只有在 requests 无法扩展且确实需要浏览器时才启动 Chromium。
+- 修复“每个 Alert 链接弹出一个浏览器、随后自动关闭”的体验问题。
+
+### 为什么
+- 用户反馈点击生成周报后只能看到“正在抓取邮件、分析论文并生成周报...”转圈，无法判断测试是否卡住或何时结束。
+- 用户反馈浏览器不停弹出又自动关闭，根因是旧实现每处理一个 AlertSummary 链接就单独启动并关闭一次 Playwright Chromium。
+
+### 影响文件
+- .claude/spec.md
+- .claude/worklog.md
+- app.py
+- pipeline/analyze_papers.py
+- pipeline/fetch_papers.py
+- paper_analyzer/ingestion/wos_browser.py
+- tests/test_fetch_papers.py
+
+### 验证结果
+- 针对性测试：`30 passed`。
+- 语法检查：`py_compile app.py main.py pipeline/fetch_papers.py pipeline/analyze_papers.py paper_analyzer/ingestion/wos_browser.py paper_analyzer/data/schema.py` 通过。
+
+### 下一步
+- 用户重新打开/刷新 Streamlit 前端后测试。
+- 浏览器模式下若需要手动机构认证，应该只弹出一个 Playwright Chromium 窗口；前端日志会显示当前处于邮件扫描、WoS 扩展、全文下载还是写出结果阶段。
+
+---
+
 ## 2026-04-28
 
 ### 补充：校园网测试反馈与浏览器登录等待

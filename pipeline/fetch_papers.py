@@ -4,11 +4,12 @@ from datetime import datetime
 import json
 import re
 from pathlib import Path
+from typing import Callable
 from urllib.parse import urlparse
 
 from paper_analyzer.data.schema import FetchAudit, FetchedPaper
 from paper_analyzer.ingestion.email_reader import fetch_wos_emails_with_stats
-from paper_analyzer.ingestion.wos_browser import fetch_wos_alert_with_browser
+from paper_analyzer.ingestion.wos_browser import WosBrowserSession
 from paper_analyzer.ingestion.wos_parser import enrich_from_web, extract_alert_summary_links, parse_wos_email
 from paper_analyzer.utils.logger import get_logger
 
@@ -29,11 +30,17 @@ def fetch_papers(
     use_browser: bool = False,
     browser_max_pages: int = 20,
     browser_manual_login_wait_seconds: int = 0,
+    progress_callback: Callable[[str], None] | None = None,
 ) -> list[FetchedPaper]:
+    _emit_progress(progress_callback, "开始连接邮箱并扫描 WoS Citation Alert 邮件")
     emails, email_stats = fetch_wos_emails_with_stats(
         since_date=since_date,
         max_emails=max_emails,
         ignore_seen=ignore_seen,
+    )
+    _emit_progress(
+        progress_callback,
+        f"已找到 {len(emails)} 封 Citation Alert；收件箱 {email_stats['inbox_email_count']} 封，检查 {email_stats['checked_email_count']} 封",
     )
     papers: list[FetchedPaper] = []
     alert_summary_link_count = 0
@@ -45,75 +52,75 @@ def fetch_papers(
     browser_expand_last_error: str | None = None
     email_details: list[dict] = []
 
-    for message_id, subject, html in emails:
-        parsed = parse_wos_email(html, source_email_id=message_id)
-        email_detail = {
-            "message_id": message_id,
-            "subject": subject,
-            "email_parsed_paper_count": len(parsed),
-            "alert_summary_link_count": 0,
-            "requests_expanded_paper_count": 0,
-            "browser_expanded_paper_count": 0,
-            "browser_new_unique_paper_count": 0,
-            "browser_duplicate_paper_count": 0,
-            "browser_expand_error_count": 0,
-            "browser_expand_last_error": None,
-            "alert_links": [],
-        }
-        for paper in parsed:
-            papers.append(paper if no_web else _enrich_or_keep(paper))
-        if expand_alert_pages:
-            summary_links = extract_alert_summary_links(html)
-            alert_summary_link_count += len(summary_links)
-            email_detail["alert_summary_link_count"] = len(summary_links)
-            for link_index, link in enumerate(summary_links, start=1):
-                link_detail = {
-                    "index": link_index,
-                    "url_summary": _summarize_url(link),
-                    "requests_expanded_paper_count": 0,
-                    "browser_expanded_paper_count": 0,
-                    "browser_new_unique_paper_count": 0,
-                    "browser_duplicate_paper_count": 0,
-                    "browser_error": None,
-                }
-                expanded = _fetch_alert_summary_papers(link, source_email_id=message_id)
-                expanded_paper_count += len(expanded)
-                email_detail["requests_expanded_paper_count"] += len(expanded)
-                link_detail["requests_expanded_paper_count"] = len(expanded)
-                if use_browser and not expanded:
-                    try:
-                        browser_expanded = fetch_wos_alert_with_browser(
-                            link,
-                            source_email_id=message_id,
-                            max_pages=browser_max_pages,
-                            manual_login_wait_seconds=browser_manual_login_wait_seconds,
-                        )
-                    except Exception as exc:
-                        logger.warning("浏览器模式扩展 WoS 结果失败：%s (%s)", link, exc)
-                        browser_expand_error_count += 1
-                        browser_expand_last_error = _format_exception(exc)
-                        email_detail["browser_expand_error_count"] += 1
-                        email_detail["browser_expand_last_error"] = browser_expand_last_error
-                        link_detail["browser_error"] = browser_expand_last_error
-                        browser_expanded = []
-                    browser_expanded_paper_count += len(browser_expanded)
-                    new_unique, duplicate = _count_new_unique_papers(papers, browser_expanded)
-                    browser_new_unique_paper_count += new_unique
-                    browser_duplicate_paper_count += duplicate
-                    email_detail["browser_expanded_paper_count"] += len(browser_expanded)
-                    email_detail["browser_new_unique_paper_count"] += new_unique
-                    email_detail["browser_duplicate_paper_count"] += duplicate
-                    link_detail["browser_expanded_paper_count"] = len(browser_expanded)
-                    link_detail["browser_new_unique_paper_count"] = new_unique
-                    link_detail["browser_duplicate_paper_count"] = duplicate
-                    expanded.extend(browser_expanded)
-                email_detail["alert_links"].append(link_detail)
-                for paper in expanded:
-                    papers.append(paper if no_web else _enrich_or_keep(paper))
-        email_details.append(email_detail)
+    browser_context: WosBrowserSession | None = None
+    browser_session: WosBrowserSession | None = None
+    try:
+        for email_index, (message_id, subject, html) in enumerate(emails, start=1):
+            clean_subject = " ".join(subject.split())
+            _emit_progress(progress_callback, f"解析第 {email_index}/{len(emails)} 封邮件：{clean_subject}")
+            parsed = parse_wos_email(html, source_email_id=message_id)
+            _emit_progress(progress_callback, f"邮件正文解析出 {len(parsed)} 篇论文")
+            email_detail = _new_email_detail(message_id, subject, len(parsed))
+            for paper in parsed:
+                papers.append(paper if no_web else _enrich_or_keep(paper))
+            if expand_alert_pages:
+                summary_links = extract_alert_summary_links(html)
+                alert_summary_link_count += len(summary_links)
+                email_detail["alert_summary_link_count"] = len(summary_links)
+                if summary_links:
+                    _emit_progress(progress_callback, f"发现 {len(summary_links)} 个 WoS 完整结果页链接，开始扩展候选")
+                for link_index, link in enumerate(summary_links, start=1):
+                    link_detail = _new_link_detail(link_index, link)
+                    expanded = _fetch_alert_summary_papers(link, source_email_id=message_id)
+                    expanded_paper_count += len(expanded)
+                    email_detail["requests_expanded_paper_count"] += len(expanded)
+                    link_detail["requests_expanded_paper_count"] = len(expanded)
+                    if use_browser and not expanded:
+                        _emit_progress(progress_callback, f"浏览器扩展第 {link_index}/{len(summary_links)} 个 WoS 链接")
+                        try:
+                            if browser_session is None:
+                                _emit_progress(progress_callback, "启动 Playwright Chromium；本次抓取会复用同一个浏览器窗口")
+                                browser_context = WosBrowserSession(
+                                    max_pages=browser_max_pages,
+                                    manual_login_wait_seconds=browser_manual_login_wait_seconds,
+                                )
+                                browser_session = browser_context.__enter__()
+                            browser_expanded = browser_session.fetch_alert(
+                                link,
+                                source_email_id=message_id,
+                            )
+                        except Exception as exc:
+                            logger.warning("浏览器模式扩展 WoS 结果失败：%s (%s)", link, exc)
+                            browser_expand_error_count += 1
+                            browser_expand_last_error = _format_exception(exc)
+                            email_detail["browser_expand_error_count"] += 1
+                            email_detail["browser_expand_last_error"] = browser_expand_last_error
+                            link_detail["browser_error"] = browser_expand_last_error
+                            _emit_progress(progress_callback, f"浏览器扩展失败：{browser_expand_last_error}")
+                            browser_expanded = []
+                        browser_expanded_paper_count += len(browser_expanded)
+                        new_unique, duplicate = _count_new_unique_papers(papers, browser_expanded)
+                        browser_new_unique_paper_count += new_unique
+                        browser_duplicate_paper_count += duplicate
+                        email_detail["browser_expanded_paper_count"] += len(browser_expanded)
+                        email_detail["browser_new_unique_paper_count"] += new_unique
+                        email_detail["browser_duplicate_paper_count"] += duplicate
+                        link_detail["browser_expanded_paper_count"] = len(browser_expanded)
+                        link_detail["browser_new_unique_paper_count"] = new_unique
+                        link_detail["browser_duplicate_paper_count"] = duplicate
+                        expanded.extend(browser_expanded)
+                        _emit_progress(progress_callback, f"浏览器返回 {len(browser_expanded)} 篇，其中新增 {new_unique} 篇，重复 {duplicate} 篇")
+                    email_detail["alert_links"].append(link_detail)
+                    for paper in expanded:
+                        papers.append(paper if no_web else _enrich_or_keep(paper))
+            email_details.append(email_detail)
+    finally:
+        if browser_context is not None:
+            browser_context.__exit__(None, None, None)
 
     parsed_paper_count = len(papers)
     papers = deduplicate_papers(papers)
+    _emit_progress(progress_callback, f"抓取完成：原始 {parsed_paper_count} 条，去重后 {len(papers)} 篇")
     save_fetched_papers(papers, output_path)
     save_fetch_audit(
         FetchAudit(
@@ -144,7 +151,41 @@ def fetch_papers(
         ),
         audit_output_path,
     )
+    _emit_progress(progress_callback, f"抓取审计已保存：{audit_output_path}")
     return papers
+
+
+def _new_email_detail(message_id: str, subject: str, parsed_count: int) -> dict:
+    return {
+        "message_id": message_id,
+        "subject": subject,
+        "email_parsed_paper_count": parsed_count,
+        "alert_summary_link_count": 0,
+        "requests_expanded_paper_count": 0,
+        "browser_expanded_paper_count": 0,
+        "browser_new_unique_paper_count": 0,
+        "browser_duplicate_paper_count": 0,
+        "browser_expand_error_count": 0,
+        "browser_expand_last_error": None,
+        "alert_links": [],
+    }
+
+
+def _new_link_detail(link_index: int, link: str) -> dict:
+    return {
+        "index": link_index,
+        "url_summary": _summarize_url(link),
+        "requests_expanded_paper_count": 0,
+        "browser_expanded_paper_count": 0,
+        "browser_new_unique_paper_count": 0,
+        "browser_duplicate_paper_count": 0,
+        "browser_error": None,
+    }
+
+
+def _emit_progress(progress_callback: Callable[[str], None] | None, message: str) -> None:
+    if progress_callback is not None:
+        progress_callback(message)
 
 
 def deduplicate_papers(papers: list[FetchedPaper]) -> list[FetchedPaper]:
