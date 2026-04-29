@@ -161,8 +161,57 @@ def parse_wos_result_page(html: str, source_email_id: str | None = None) -> list
                 fetch_method="wos_browser",
             )
         )
+    for element in soup.find_all(_is_probable_wos_title_element):
+        title = element.get_text(" ", strip=True)
+        if not _is_probable_title(title):
+            continue
+        href = _find_nearby_record_href(element)
+        papers.append(
+            FetchedPaper(
+                title=title,
+                abstract="",
+                link=_normalize_wos_href(href) if href else None,
+                source_email_id=source_email_id,
+                fetch_method="wos_browser",
+            )
+        )
 
     return _deduplicate_by_title(papers)
+
+
+def _is_probable_wos_title_element(element) -> bool:
+    if element.name not in {"a", "span", "div", "h2", "h3", "h4"}:
+        return False
+    attrs = " ".join(
+        str(value)
+        for key, value in element.attrs.items()
+        if key in {"data-ta", "id", "class", "aria-label"}
+    ).lower()
+    title_markers = {
+        "summary-record-title",
+        "record-title",
+        "title-link",
+        "fullrta",
+        "full-record",
+        "summary-title",
+        "app-summary-title",
+    }
+    return any(marker in attrs for marker in title_markers)
+
+
+def _find_nearby_record_href(element) -> str | None:
+    if element.name == "a" and element.get("href"):
+        return element.get("href")
+    link = element.find("a", href=True)
+    if link and _is_wos_record_href(link.get("href", "")):
+        return link.get("href")
+    for parent in element.parents:
+        if getattr(parent, "name", None) in {None, "body", "html"}:
+            break
+        link = parent.find("a", href=True)
+        if link and _is_wos_record_href(link.get("href", "")):
+            return link.get("href")
+    return None
 
 
 def _collect_wos_records_across_pages(
@@ -492,6 +541,11 @@ def _wait_for_wos_records(page, timeout_ms: int) -> None:
         "a[href*='full-record']",
         "a[href*='WOS:']",
         "[data-ta='summary-record-title-link']",
+        "[data-ta*='summary-record-title']",
+        "[data-ta*='record-title']",
+        "[id*='FullRTa']",
+        "[class*='summary-record-title']",
+        "[class*='title-link']",
     ]
     for selector in selectors:
         try:
@@ -499,9 +553,23 @@ def _wait_for_wos_records(page, timeout_ms: int) -> None:
             return
         except Exception:
             continue
+    if _looks_like_loaded_wos_summary_page(page):
+        return
     title = _safe_page_title(page)
     current_url = _summarize_page_url(getattr(page, "url", ""))
     raise RuntimeError(f"页面已打开但未发现 WoS 记录链接；title={title!r}；url={current_url!r}")
+
+
+def _looks_like_loaded_wos_summary_page(page) -> bool:
+    title = _safe_page_title(page).lower()
+    current_url = _summarize_page_url(getattr(page, "url", "")).lower()
+    if "/wos/woscc/summary/" not in current_url and "alerting results" not in title:
+        return False
+    try:
+        body = page.locator("body").inner_text(timeout=3000).lower()
+    except Exception:
+        body = ""
+    return "web of science core collection" in title or "web of science core collection" in body
 
 
 def _summarize_page_url(url: str) -> str:
@@ -522,7 +590,19 @@ def _is_probable_title(text: str) -> bool:
     if len(text) < 20:
         return False
     lowered = text.lower()
-    bad = {"view record", "full text", "export", "save", "citation", "references"}
+    bad = {
+        "view record",
+        "full text",
+        "export",
+        "save",
+        "citation network",
+        "cited references",
+        "marked list",
+        "web of science core collection",
+        "alerting results for",
+        "sort by",
+        "results per page",
+    }
     return not any(item in lowered for item in bad)
 
 

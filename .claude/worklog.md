@@ -6,6 +6,43 @@
 
 ## 2026-04-29
 
+### 补充：WoS summary title 元素解析
+
+### 做了什么
+- 读取用户最新测试结果：
+  - 第二封 Raissi Alert 已进入 `webofscience.clarivate.cn/wos/woscc/summary/.../relevance/2`。
+  - 页面标题显示该 Alert 有 67 条结果，但代码未发现旧版 WoS 记录链接 selector。
+  - 最终候选退回到 7 篇，说明问题从登录/跳转进一步缩小到 summary 页 DOM 识别。
+- 扩展 WoS 结果页解析：
+  - 继续支持带 `full-record` / `WOS:` 的链接。
+  - 新增识别 `data-ta`、`id`、`class`、`aria-label` 中带 summary/record/title 标记的标题元素。
+  - 标题元素附近找不到 Full Record 链接时，保留 title-only 候选。
+  - `wait_for_wos_records` 对已加载的 WoS summary 页不再立即报错，允许进入宽松解析。
+- 新增测试覆盖 `data-ta="summary-record-title"` title-only 解析，以及标题容器附近链接回填。
+
+### 为什么
+- 真实 WoS summary 页可能不再把标题暴露为简单 `<a href="...full-record...">`，而是由组件和属性标记渲染。
+- 对当前项目而言，先拿到标题也有价值：可以进入候选筛选，并通过标题查询开放获取全文。
+
+### 影响文件
+- .claude/spec.md
+- .claude/worklog.md
+- .claude/handoff.md
+- paper_analyzer/ingestion/wos_browser.py
+- tests/test_wos_browser.py
+
+### 验证结果
+- 针对性测试：`33 passed`。
+- 语法检查：`py_compile paper_analyzer/ingestion/wos_browser.py pipeline/fetch_papers.py app.py main.py` 通过。
+
+### 下一步
+- 用户重新测试，重点看第二封 Raissi Alert 的 `browser_expanded_paper_count` 是否从 0/少量增加。
+- 如果仍然没有增加，需要保存一份脱敏后的 WoS summary DOM 结构或增加页面内 JS 提取策略，直接从可见文本块中识别论文标题。
+
+---
+
+## 2026-04-29
+
 ### 补充：WoS 虚拟列表滚动收集
 
 ### 做了什么

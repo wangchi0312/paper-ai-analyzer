@@ -32,6 +32,7 @@
 - 前端一键周报新增运行日志区，抓取与分析流程通过 `progress_callback` 持续回报阶段状态；不再只显示转圈。
 - 同一次抓取任务内，WoS 浏览器模式复用一个 `WosBrowserSession`；只有 requests 无法扩展且需要浏览器时才启动 Chromium，避免每个 Alert 链接重复弹窗和关闭。
 - WoS 浏览器解析已改为滚动过程中持续收集当前可见记录，以适配虚拟列表/懒加载；下一页控件识别也补充了英文小写、中文、图标和 `data-ta`/class next。
+- WoS summary 页解析已扩展到 `data-ta`、`id`、`class`、`aria-label` 标记的 title 元素；找不到附近 Full Record 链接时也会保留 title-only 候选。
 - 抓取审计已记录 `alert_summary_link_count`、`expanded_paper_count`、`browser_expanded_paper_count`、`browser_expand_error_count`、`browser_expand_last_error`，用于判断候选扩展是否成功；浏览器错误会包含异常类型，页面无记录时会包含页面标题和当前 URL。
 - 邮件批量深度解读现在会把标题、作者、期刊/会议、DOI、链接和摘要一起给 LLM，并用邮件元数据回填基础字段，减少周报中的“未识别”。
 - `paper_analyzer/fulltext/` 已实现基础全文获取：publisher PDF 直链、Unpaywall、Semantic Scholar、arXiv 候选解析和 PDF 下载。
@@ -46,6 +47,7 @@ P0：真实邮箱联调
 - 当前协作方式：用户负责在校园网/学校 VPN 环境手动测试；Agent 不再继续处理学校机构认证登录，只在用户测试完后读取 `data/processed/fetch_audit.json`、`data/processed/fetched_papers.json` 和最新 `data/outputs/<timestamp>/results.json` / `weekly_report.md` 做反馈。
 - 最近一次用户测试已选中目标两封 Alert（2 results + 71 results），但只得到邮件正文 7 篇；`browser_expanded_paper_count=0`，说明完整 AlertSummary 页面尚未扩展成功。下一轮测试需启用浏览器模式并设置手动登录等待 180-300 秒，在弹出的 Playwright Chromium 中完成机构认证。
 - 2026-04-29 最新测试：浏览器扩展无错误，`browser_expanded_paper_count=10`、最终候选 12 篇；全文下载链路已成功下载 1 篇 arXiv PDF。当前瓶颈是 WoS 页面虚拟列表/分页未抓全，已补滚动过程中持续收集，待用户复测。
+- 2026-04-29 后续测试：第二封 Raissi Alert 已进入 WoS summary 页，页面标题显示 67 条结果，但旧 selector 未发现记录链接；已补宽松 title 元素解析，待用户复测。
 - 如果用户继续反馈卡住，优先查看前端运行日志最后一行和 `fetch_audit.json`；若最后一行是“浏览器扩展”，说明仍停在 WoS/机构登录或页面解析阶段。
 - 若用户期望最近两封邮件合计 73 篇但审计只有个位数/十几篇，先检查 `email_details[*].subject` 是否是目标 Alert，再看每个 `alert_links` 的扩展数量。
 - 如果 subject 正确但浏览器错误显示 `access.clarivate.com/login` 或 `forgotpassword`，说明 Playwright profile 没有有效 WoS/Clarivate 访问态；需要让用户在弹出的 Playwright Chromium 中完成一次认证，或后续实现连接用户日常 Chrome 登录态。
