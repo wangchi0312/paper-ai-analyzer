@@ -200,7 +200,7 @@ def _is_probable_wos_title_element(element) -> bool:
 
 
 def _find_nearby_record_href(element) -> str | None:
-    if element.name == "a" and element.get("href"):
+    if element.name == "a" and _is_wos_record_href(element.get("href", "")):
         return element.get("href")
     link = element.find("a", href=True)
     if link and _is_wos_record_href(link.get("href", "")):
@@ -590,6 +590,8 @@ def _is_probable_title(text: str) -> bool:
     if len(text) < 20:
         return False
     lowered = text.lower()
+    if "arrow_drop_down" in lowered or "javascript:void" in lowered:
+        return False
     bad = {
         "view record",
         "full text",
@@ -608,6 +610,8 @@ def _is_probable_title(text: str) -> bool:
 
 def _is_wos_record_href(href: str) -> bool:
     lowered = href.lower()
+    if not lowered or lowered.startswith("javascript:") or lowered.startswith("#"):
+        return False
     return "fullrecord" in lowered or "full-record" in lowered or "keyut=wos" in lowered or "wos:" in lowered
 
 
@@ -615,6 +619,8 @@ def _normalize_wos_href(href: str) -> str:
     extracted = _extract_wos_url(href)
     if extracted:
         return extracted
+    if href.lower().startswith(("javascript:", "#")):
+        return ""
     if href.startswith("http"):
         return href
     return f"https://www.webofscience.com{href}"

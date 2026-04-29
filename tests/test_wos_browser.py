@@ -69,6 +69,30 @@ def test_parse_wos_result_page_extracts_nearby_href_from_title_container():
     assert papers[0].link == "https://www.webofscience.com/wos/woscc/full-record/WOS:009999"
 
 
+def test_parse_wos_result_page_filters_facets_and_javascript_links():
+    html = """
+    <html>
+      <body>
+        <a class="summary-record-title" href="javascript:void(0)">
+          COMPUTER METHODS IN APPLIED MECHANICS AND ENGINEERING arrow_drop_down
+        </a>
+        <div class="summary-record">
+          <a href="javascript:void(0)">Facet dropdown item physics-informed</a>
+          <span class="summary-record-title">
+            Real paper title about physics-informed neural networks
+          </span>
+        </div>
+      </body>
+    </html>
+    """
+
+    papers = parse_wos_result_page(html, source_email_id="<id@example.com>")
+
+    assert len(papers) == 1
+    assert papers[0].title == "Real paper title about physics-informed neural networks"
+    assert papers[0].link is None
+
+
 def test_wait_for_wos_records_reports_login_or_empty_page():
     class FakePage:
         url = "https://access.clarivate.com/login?loginId=user@example.com&sid=secret"

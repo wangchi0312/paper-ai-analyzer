@@ -6,6 +6,42 @@
 
 ## 2026-04-29
 
+### 补充：过滤 WoS facet/venue 误抓项
+
+### 做了什么
+- 读取用户最新测试结果：
+  - `browser_expand_error_count=0`，说明浏览器解析已稳定进入 WoS 页面。
+  - `browser_expanded_paper_count=89`，`browser_new_unique_paper_count=83`，最终 `unique_paper_count=90`。
+  - 结果中混入了 WoS 筛选项/期刊名，例如 `COMPUTER METHODS IN APPLIED MECHANICS AND ENGINEERING arrow_drop_down`，链接为 `javascript:void(0)`。
+- 收紧 WoS 结果页解析：
+  - 标题中包含 `arrow_drop_down` 或 `javascript:void` 的文本不再视为论文标题。
+  - `javascript:` 和 `#` 链接不再视为 WoS record 链接。
+  - title 元素自身是 `<a>` 时，只有 href 是真实 WoS record 才回填链接。
+- 新增测试覆盖 facet/dropdown 项过滤，以及真实 title-only 候选保留。
+
+### 为什么
+- 宽松 title 元素解析解决了抓不到 summary 页记录的问题，但也把左侧筛选项、期刊下拉项误当作论文。
+- 过滤控件文本后，候选数量应从 90 回落到更接近真实论文数，同时避免低质量候选污染相似度排序和周报。
+
+### 影响文件
+- .claude/spec.md
+- .claude/worklog.md
+- .claude/handoff.md
+- paper_analyzer/ingestion/wos_browser.py
+- tests/test_wos_browser.py
+
+### 验证结果
+- 针对性测试：`34 passed`。
+- 语法检查：`py_compile paper_analyzer/ingestion/wos_browser.py pipeline/fetch_papers.py app.py main.py` 通过。
+
+### 下一步
+- 用户下一轮测试后重点看 `unique_paper_count` 是否回落到接近 73，且周报候选排序中不再出现 `arrow_drop_down`。
+- 如果过滤后候选只有约 48 篇，说明还需要继续增强 WoS 下一页/虚拟列表滚动；如果在 67-73 左右，则抓取阶段基本可进入全文下载命中率优化。
+
+---
+
+## 2026-04-29
+
 ### 补充：WoS summary title 元素解析
 
 ### 做了什么
