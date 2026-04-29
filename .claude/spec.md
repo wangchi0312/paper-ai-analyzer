@@ -126,6 +126,7 @@ V2 最小闭环继续保持 KISS 原则，先实现可测试的 CLI 流程：
 24. WoS 浏览器宽松解析必须过滤页面筛选项和控件文本，尤其是 `arrow_drop_down`、`javascript:void(0)`、期刊筛选下拉项等，避免把 venue/facet 项当作论文候选。
 25. 当 WoS 下一页按钮无法通过 DOM 识别时，浏览器模式应支持 summary URL 页码兜底翻页：例如 `/wos/woscc/summary/<id>/relevance/1` 推进到 `/relevance/2`，直到没有新增记录或达到 `browser_max_pages`。
 26. 全文下载必须有明确、可配置且偏短的超时，避免某个出版商、arXiv、Unpaywall 或 Semantic Scholar 请求长时间阻塞前端。一键周报前端需要提供“全文下载超时秒数”，默认 10 秒；CLI/分析函数也需要传递该参数。
+27. WoS 分页控件不一定暴露稳定的 Next 文本。浏览器模式应识别当前页码并点击下一数字页码，例如当前页为 1 时点击页码 2；该策略应优先于宽泛的 Next 文本兜底。
 
 后续版本暂缓需求：
 

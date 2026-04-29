@@ -495,6 +495,9 @@ def _go_to_next_results_page(page, timeout_ms: int) -> bool:
                 return True
         except Exception:
             continue
+    if _click_next_page_number_by_dom(page, timeout_ms=timeout_ms):
+        _wait_after_navigation_or_update(page, current_url=current_url, timeout_ms=timeout_ms)
+        return True
     if _click_next_button_by_dom(page, timeout_ms=timeout_ms):
         _wait_after_navigation_or_update(page, current_url=current_url, timeout_ms=timeout_ms)
         return True
@@ -549,6 +552,61 @@ def _click_next_button_by_dom(page, timeout_ms: int) -> bool:
         const disabled = el.disabled || el.getAttribute('aria-disabled') === 'true' || el.hasAttribute('disabled');
         const visible = !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length);
         if (!disabled && visible && labels.some((label) => text.includes(label))) {
+          el.click();
+          return true;
+        }
+      }
+      return false;
+    }
+    """
+    try:
+        clicked = bool(page.evaluate(script))
+        if clicked:
+            page.wait_for_timeout(min(timeout_ms, 1200))
+        return clicked
+    except Exception:
+        return False
+
+
+def _click_next_page_number_by_dom(page, timeout_ms: int) -> bool:
+    script = """
+    () => {
+      const visible = (el) => !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length);
+      const disabled = (el) => el.disabled || el.getAttribute('aria-disabled') === 'true' || el.hasAttribute('disabled');
+      const candidates = Array.from(document.querySelectorAll('button, a')).filter((el) => visible(el));
+      const textOf = (el) => [
+        el.innerText,
+        el.textContent,
+        el.getAttribute('aria-label'),
+        el.getAttribute('title')
+      ].filter(Boolean).join(' ').replace(/\\s+/g, ' ').trim();
+
+      let currentPage = null;
+      for (const el of candidates) {
+        const text = textOf(el);
+        const exactNumber = text.match(/^\\d+$/);
+        const labelNumber = text.match(/(?:page|第)\\s*(\\d+)/i);
+        const number = exactNumber ? parseInt(exactNumber[0], 10) : (labelNumber ? parseInt(labelNumber[1], 10) : null);
+        const marker = [
+          el.getAttribute('aria-current'),
+          el.getAttribute('aria-selected'),
+          el.className
+        ].filter(Boolean).join(' ').toLowerCase();
+        if (number && (marker.includes('page') || marker.includes('true') || marker.includes('active') || marker.includes('current') || marker.includes('selected'))) {
+          currentPage = number;
+          break;
+        }
+      }
+      if (!currentPage) currentPage = 1;
+      const targetPage = currentPage + 1;
+
+      for (const el of candidates) {
+        if (disabled(el)) continue;
+        const text = textOf(el);
+        const exactNumber = text.match(/^\\d+$/);
+        const labelNumber = text.match(/(?:page|第)\\s*(\\d+)/i);
+        const number = exactNumber ? parseInt(exactNumber[0], 10) : (labelNumber ? parseInt(labelNumber[1], 10) : null);
+        if (number === targetPage) {
           el.click();
           return true;
         }

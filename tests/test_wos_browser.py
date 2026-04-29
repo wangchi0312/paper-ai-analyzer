@@ -2,6 +2,7 @@ import pytest
 
 from paper_analyzer.ingestion.wos_browser import (
     _collect_wos_records_from_current_page,
+    _click_next_page_number_by_dom,
     _goto_wos_url,
     _next_summary_page_url,
     _wait_for_wos_records,
@@ -226,3 +227,21 @@ def test_next_summary_page_url_appends_page_number_when_missing():
     url = "https://webofscience.clarivate.cn/wos/woscc/summary/abc-123/relevance"
 
     assert _next_summary_page_url(url) == "https://webofscience.clarivate.cn/wos/woscc/summary/abc-123/relevance/2"
+
+
+def test_click_next_page_number_by_dom_uses_page_script_result():
+    class FakePage:
+        def __init__(self):
+            self.waited = False
+
+        def evaluate(self, script):
+            assert "targetPage" in script
+            return True
+
+        def wait_for_timeout(self, timeout):
+            self.waited = True
+
+    page = FakePage()
+
+    assert _click_next_page_number_by_dom(page, timeout_ms=1000) is True
+    assert page.waited is True

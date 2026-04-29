@@ -6,6 +6,41 @@
 
 ## 2026-04-29
 
+### 补充：WoS 数字页码分页
+
+### 做了什么
+- 读取用户最新测试结果：
+  - `unique_paper_count=50`，`browser_expanded_paper_count=48`。
+  - `arrow_drop_down=0`，`javascript` 链接为 0，候选质量已正常。
+  - 数量仍停留在第一页规模，说明 URL 页码兜底没有让 WoS 进入第二页。
+- 新增数字页码分页策略：
+  - 在 DOM 中识别当前页码。
+  - 当前页码为 1 时优先点击页码 2。
+  - 该策略放在宽泛 Next 文本匹配之前，减少误点其它 next 控件。
+
+### 为什么
+- WoS 的 Next 按钮和 URL 页码都不稳定时，分页器里的数字页码通常更明确。
+- 当前抓取已证明第一页解析可用，剩余目标是进入第二页拿到 71 results 中超过第一页的部分。
+
+### 影响文件
+- .claude/spec.md
+- .claude/worklog.md
+- .claude/handoff.md
+- paper_analyzer/ingestion/wos_browser.py
+- tests/test_wos_browser.py
+
+### 验证结果
+- 针对性测试：`38 passed`。
+- 语法检查：`py_compile paper_analyzer/ingestion/wos_browser.py pipeline/fetch_papers.py app.py main.py` 通过。
+
+### 下一步
+- 用户下一轮测试后，若 `browser_expanded_paper_count` 超过 48 且 `unique_paper_count` 接近 73，则分页修复有效。
+- 如果仍停在 50，需要在前端日志或审计中记录分页尝试后的 URL/新增数量，继续定位 WoS 分页机制。
+
+---
+
+## 2026-04-29
+
 ### 补充：全文下载超时可配置
 
 ### 做了什么

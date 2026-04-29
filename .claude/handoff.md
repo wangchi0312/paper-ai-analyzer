@@ -36,6 +36,7 @@
 - WoS summary 页解析已扩展到 `data-ta`、`id`、`class`、`aria-label` 标记的 title 元素；找不到附近 Full Record 链接时也会保留 title-only 候选。
 - WoS 宽松 title 解析已过滤 `arrow_drop_down`、`javascript:void(0)`、facet/venue 下拉项，避免把页面筛选控件当作论文候选。
 - WoS 浏览器翻页新增 summary URL 页码兜底：DOM 下一页按钮识别失败时，尝试将 `/wos/woscc/summary/<id>/relevance/1` 推进到 `/relevance/2`，连续无新增记录后停止。
+- WoS 浏览器翻页新增数字页码策略：识别当前页码并点击下一数字页码，该策略优先于宽泛的 Next 文本匹配。
 - 抓取审计已记录 `alert_summary_link_count`、`expanded_paper_count`、`browser_expanded_paper_count`、`browser_expand_error_count`、`browser_expand_last_error`，用于判断候选扩展是否成功；浏览器错误会包含异常类型，页面无记录时会包含页面标题和当前 URL。
 - 邮件批量深度解读现在会把标题、作者、期刊/会议、DOI、链接和摘要一起给 LLM，并用邮件元数据回填基础字段，减少周报中的“未识别”。
 - `paper_analyzer/fulltext/` 已实现基础全文获取：publisher PDF 直链、Unpaywall、Semantic Scholar、arXiv 候选解析和 PDF 下载。
@@ -54,6 +55,7 @@ P0：真实邮箱联调
 - 2026-04-29 最新一轮测试：浏览器扩展到 89 条、最终候选 90 篇，但混入大量 `arrow_drop_down` 期刊筛选项；已补 facet/dropdown 过滤，待用户复测。若过滤后候选约 48 篇，需要继续增强滚动/分页；若接近 67-73 篇，则抓取基本达标。
 - 2026-04-29 再次测试：候选回落到 50，误抓已清理，但只抓到第一页；已补 summary URL 页码兜底，待用户复测。
 - 2026-04-29 用户反馈卡在全文下载：抓取审计已完成但没有新输出目录，说明卡在抓取后的全文下载/分析阶段；已将全文下载默认超时降至 10 秒并暴露到前端/CLI。
+- 2026-04-29 最新测试仍停在 50，候选质量正常但分页未进入第二页；已补点击数字页码分页，待用户复测。
 - 如果用户继续反馈卡住，优先查看前端运行日志最后一行和 `fetch_audit.json`；若最后一行是“浏览器扩展”，说明仍停在 WoS/机构登录或页面解析阶段。
 - 若用户期望最近两封邮件合计 73 篇但审计只有个位数/十几篇，先检查 `email_details[*].subject` 是否是目标 Alert，再看每个 `alert_links` 的扩展数量。
 - 如果 subject 正确但浏览器错误显示 `access.clarivate.com/login` 或 `forgotpassword`，说明 Playwright profile 没有有效 WoS/Clarivate 访问态；需要让用户在弹出的 Playwright Chromium 中完成一次认证，或后续实现连接用户日常 Chrome 登录态。
