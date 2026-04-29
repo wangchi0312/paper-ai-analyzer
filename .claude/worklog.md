@@ -6,6 +6,42 @@
 
 ## 2026-04-29
 
+### 补充：WoS summary URL 页码兜底翻页
+
+### 做了什么
+- 读取用户最新测试结果：
+  - `unique_paper_count=50`，`browser_expanded_paper_count=48`。
+  - `arrow_drop_down=0`，`javascript` 链接为 0，说明 facet/dropdown 误抓已修复。
+  - Raissi 71 results 邮件扩展 46 条，整体表现符合只抓到 WoS 第一页的情况。
+- 新增 WoS summary URL 页码兜底翻页：
+  - `/wos/woscc/summary/<id>/relevance/1` 自动推进到 `/relevance/2`。
+  - 如果 URL 缺少页码，则尝试追加 `/2`。
+  - 翻页后若连续页面没有新增标题，提前停止，避免无效循环。
+- 新增测试覆盖已有页码递增和缺页码追加两种 URL。
+
+### 为什么
+- DOM 下一页按钮在真实 WoS 页面中仍未稳定识别，导致只抓到第一页约 50 条。
+- 真实 URL 已暴露 summary 页码结构，使用 URL 页码作为兜底比继续猜按钮 selector 更稳定。
+
+### 影响文件
+- .claude/spec.md
+- .claude/worklog.md
+- .claude/handoff.md
+- paper_analyzer/ingestion/wos_browser.py
+- tests/test_wos_browser.py
+
+### 验证结果
+- 针对性测试：`36 passed`。
+- 语法检查：`py_compile paper_analyzer/ingestion/wos_browser.py pipeline/fetch_papers.py app.py main.py` 通过。
+
+### 下一步
+- 用户下一轮测试后，如果 URL 兜底有效，`unique_paper_count` 应从 50 增加到接近 73。
+- 如果仍停在 50，需要捕获页面最后 URL 或前端日志中翻页行为，判断 WoS 是否不接受直接页码 URL。
+
+---
+
+## 2026-04-29
+
 ### 补充：过滤 WoS facet/venue 误抓项
 
 ### 做了什么

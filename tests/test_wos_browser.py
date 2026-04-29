@@ -3,6 +3,7 @@ import pytest
 from paper_analyzer.ingestion.wos_browser import (
     _collect_wos_records_from_current_page,
     _goto_wos_url,
+    _next_summary_page_url,
     _wait_for_wos_records,
     _wait_for_wos_records_or_login,
     parse_wos_result_page,
@@ -213,3 +214,15 @@ def test_collect_wos_records_accumulates_virtualized_scroll_results():
         "Third virtualized physics-informed paper title",
         "Fourth virtualized physics-informed paper title",
     ]
+
+
+def test_next_summary_page_url_increments_existing_page_number():
+    url = "https://webofscience.clarivate.cn/wos/woscc/summary/abc-123/relevance/1"
+
+    assert _next_summary_page_url(url) == "https://webofscience.clarivate.cn/wos/woscc/summary/abc-123/relevance/2"
+
+
+def test_next_summary_page_url_appends_page_number_when_missing():
+    url = "https://webofscience.clarivate.cn/wos/woscc/summary/abc-123/relevance"
+
+    assert _next_summary_page_url(url) == "https://webofscience.clarivate.cn/wos/woscc/summary/abc-123/relevance/2"

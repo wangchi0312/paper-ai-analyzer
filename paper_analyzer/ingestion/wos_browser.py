@@ -1,5 +1,6 @@
 import os
 from pathlib import Path
+import re
 from urllib.parse import urlparse
 
 from bs4 import BeautifulSoup
@@ -221,8 +222,19 @@ def _collect_wos_records_across_pages(
     max_pages: int,
 ) -> list[FetchedPaper]:
     papers: list[FetchedPaper] = []
+    seen_keys: set[str] = set()
+    empty_growth_pages = 0
     for _ in range(max_pages):
-        papers.extend(_collect_wos_records_from_current_page(page, source_email_id=source_email_id))
+        page_papers = _collect_wos_records_from_current_page(page, source_email_id=source_email_id)
+        new_keys = {_paper_title_key(paper) for paper in page_papers} - seen_keys
+        if new_keys:
+            empty_growth_pages = 0
+        else:
+            empty_growth_pages += 1
+        papers.extend(page_papers)
+        seen_keys.update(new_keys)
+        if empty_growth_pages >= 2:
+            break
         if not _go_to_next_results_page(page, timeout_ms=timeout_ms):
             break
         _wait_for_wos_records(page, timeout_ms=timeout_ms)
@@ -486,7 +498,38 @@ def _go_to_next_results_page(page, timeout_ms: int) -> bool:
     if _click_next_button_by_dom(page, timeout_ms=timeout_ms):
         _wait_after_navigation_or_update(page, current_url=current_url, timeout_ms=timeout_ms)
         return True
+    if _goto_next_summary_url(page, timeout_ms=timeout_ms):
+        _wait_after_navigation_or_update(page, current_url=current_url, timeout_ms=timeout_ms)
+        return True
     return False
+
+
+def _goto_next_summary_url(page, timeout_ms: int) -> bool:
+    current_url = getattr(page, "url", "")
+    next_url = _next_summary_page_url(current_url)
+    if not next_url:
+        return False
+    try:
+        _goto_wos_url(page, next_url, timeout_ms=timeout_ms)
+        return getattr(page, "url", "") != current_url
+    except Exception:
+        return False
+
+
+def _next_summary_page_url(url: str) -> str | None:
+    parsed = urlparse(url)
+    if "/wos/woscc/summary/" not in parsed.path:
+        return None
+    match = re.search(r"(/wos/woscc/summary/[^/]+/[^/?#]+/)(\d+)(/?)$", parsed.path)
+    if match:
+        page_num = int(match.group(2))
+        path = f"{match.group(1)}{page_num + 1}{match.group(3)}"
+    else:
+        match = re.search(r"(/wos/woscc/summary/[^/]+/[^/?#]+)(/?)$", parsed.path)
+        if not match:
+            return None
+        path = f"{match.group(1).rstrip('/')}/2"
+    return parsed._replace(path=path).geturl()
 
 
 def _click_next_button_by_dom(page, timeout_ms: int) -> bool:

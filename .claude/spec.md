@@ -124,6 +124,7 @@ V2 最小闭环继续保持 KISS 原则，先实现可测试的 CLI 流程：
 22. WoS 结果页可能使用虚拟列表或懒加载，DOM 中一次只保留少量可见记录。浏览器解析必须在滚动过程中持续收集标题链接，而不是滚动结束后只解析一次；同时需要识别英文/中文/图标式下一页控件，避免只抓取首屏或当前可见批次。
 23. WoS summary 页的标题元素不一定是带 `full-record` 链接的 `<a>`。浏览器解析应同时识别 `data-ta`、`id`、`class` 中带 summary/record/title 标记的元素；若找不到附近 Full Record 链接，也应保留 title-only 候选，供后续按标题查找全文或补全元数据。
 24. WoS 浏览器宽松解析必须过滤页面筛选项和控件文本，尤其是 `arrow_drop_down`、`javascript:void(0)`、期刊筛选下拉项等，避免把 venue/facet 项当作论文候选。
+25. 当 WoS 下一页按钮无法通过 DOM 识别时，浏览器模式应支持 summary URL 页码兜底翻页：例如 `/wos/woscc/summary/<id>/relevance/1` 推进到 `/relevance/2`，直到没有新增记录或达到 `browser_max_pages`。
 
 后续版本暂缓需求：
 
