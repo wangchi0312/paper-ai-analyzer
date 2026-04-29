@@ -29,6 +29,7 @@ def analyze_papers(
     top_k: int | None = None,
     download_full_text: bool = False,
     unpaywall_email: str | None = None,
+    full_text_timeout: int = 10,
     progress_callback: Callable[[str], None] | None = None,
 ) -> Path:
     if not papers:
@@ -94,6 +95,7 @@ def analyze_papers(
                         output_dir=fulltext_dir,
                         index=index + 1,
                         unpaywall_email=unpaywall_email,
+                        timeout=full_text_timeout,
                     )
                     paper.full_text_status = "downloaded" if fulltext_result.success else "failed"
                     paper.full_text_source = fulltext_result.source
@@ -271,6 +273,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--top-k", type=int, default=None, help="只允许相似度最高的前 N 篇触发 LLM")
     parser.add_argument("--download-full-text", action="store_true", help="邮件批量模式下下载全文后再深度解读")
     parser.add_argument("--unpaywall-email", default=None, help="Unpaywall 查询邮箱，用于开放获取全文查找")
+    parser.add_argument("--full-text-timeout", type=int, default=10, help="单次全文查找/下载请求超时秒数")
     return parser.parse_args()
 
 
@@ -293,6 +296,7 @@ def main() -> None:
             top_k=args.top_k,
             download_full_text=args.download_full_text,
             unpaywall_email=args.unpaywall_email,
+            full_text_timeout=args.full_text_timeout,
         )
     else:
         if not args.pdf:

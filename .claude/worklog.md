@@ -6,6 +6,44 @@
 
 ## 2026-04-29
 
+### 补充：全文下载超时可配置
+
+### 做了什么
+- 读取用户反馈后的本地文件：
+  - `fetch_audit.json` 已更新到 12:35，说明邮件抓取和 WoS 扩展已完成。
+  - 最新 `data/outputs` 没有生成新结果目录，说明任务卡在抓取后的全文下载/分析阶段。
+- 为全文下载链路新增可配置超时：
+  - `analyze_papers()` 新增 `full_text_timeout`，默认 10 秒。
+  - CLI `analyze` / `run` 新增 `--full-text-timeout`。
+  - Streamlit 一键周报和邮件批量页新增“全文下载超时秒数”，默认 10 秒。
+  - 前端两个同名控件增加唯一 key，避免 Streamlit widget ID 冲突。
+- 新增测试确认 `full_text_timeout` 会传递给 `resolve_full_text()`。
+
+### 为什么
+- 全文下载会串行访问 arXiv、Unpaywall、Semantic Scholar 或 PDF URL；默认 30 秒在多个 top-k 候选上会让前端看起来卡死。
+- 调试阶段应快速失败并写入“全文获取失败”，而不是让用户长时间停在 spinner。
+
+### 影响文件
+- .claude/spec.md
+- .claude/worklog.md
+- .claude/handoff.md
+- app.py
+- main.py
+- pipeline/analyze_papers.py
+- tests/test_analyze_fetched_papers.py
+
+### 验证结果
+- 针对性测试：`35 passed`。
+- 语法检查：`py_compile app.py main.py pipeline/analyze_papers.py pipeline/fetch_papers.py paper_analyzer/fulltext/resolver.py paper_analyzer/fulltext/downloader.py` 通过。
+
+### 下一步
+- 用户需要刷新或重启 Streamlit 前端后重试。
+- 一键周报测试时建议将“全文下载超时秒数”设为 5-10 秒；若只想继续验证抓取数量，可临时取消“下载全文后再深度解读”。
+
+---
+
+## 2026-04-29
+
 ### 补充：WoS summary URL 页码兜底翻页
 
 ### 做了什么

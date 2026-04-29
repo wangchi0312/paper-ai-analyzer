@@ -106,6 +106,16 @@ def _render_weekly_tab(params: dict) -> None:
             help="如果浏览器停在 Clarivate 或学校认证页，可设置 180-300 秒，并在弹出的 Chromium 中手动完成登录。",
         )
         download_full_text = st.checkbox("下载全文后再深度解读", value=True)
+        full_text_timeout = st.number_input(
+            "全文下载超时秒数",
+            min_value=3,
+            max_value=60,
+            value=10,
+            step=1,
+            disabled=not download_full_text,
+            key="weekly_full_text_timeout",
+            help="单次开放获取查询或 PDF 下载请求的超时；调试时建议 8-10 秒，避免某个站点长时间卡住。",
+        )
         download_only = st.checkbox("只验证抓取和全文下载，不调用 LLM", value=False, help="用于调试候选抓取和 PDF 下载。开启后不需要填写 API Key，也不会调用模型。")
         unpaywall_email = st.text_input("Unpaywall 查询邮箱", value=email_address, help="用于查询开放获取全文，可填常用邮箱。")
         push_to_feishu = st.checkbox("生成后推送到飞书", value=False)
@@ -187,6 +197,7 @@ def _render_weekly_tab(params: dict) -> None:
                     top_k=int(top_k),
                     download_full_text=download_full_text,
                     unpaywall_email=unpaywall_email or email_address,
+                    full_text_timeout=int(full_text_timeout),
                     progress_callback=report_progress,
                 )
             if push_to_feishu:
@@ -249,6 +260,15 @@ def _render_batch_tab(params: dict) -> None:
     top_k_value = st.number_input("Top K", min_value=1, max_value=100, value=5, step=1, disabled=not top_k_enabled)
     top_k = int(top_k_value) if top_k_enabled else None
     download_full_text = st.checkbox("下载全文后再深度解读", value=False)
+    full_text_timeout = st.number_input(
+        "全文下载超时秒数",
+        min_value=3,
+        max_value=60,
+        value=10,
+        step=1,
+        disabled=not download_full_text,
+        key="batch_full_text_timeout",
+    )
     unpaywall_email = st.text_input("Unpaywall 查询邮箱（可选）")
     push_to_feishu = st.checkbox("生成后推送到飞书", value=False)
     feishu_webhook = ""
@@ -294,6 +314,7 @@ def _render_batch_tab(params: dict) -> None:
                     top_k=top_k,
                     download_full_text=download_full_text,
                     unpaywall_email=unpaywall_email or None,
+                    full_text_timeout=int(full_text_timeout),
                 )
             except Exception as exc:
                 st.error(f"批量分析失败：{exc}")

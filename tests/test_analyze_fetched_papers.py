@@ -143,7 +143,7 @@ def test_analyze_fetched_papers_downloads_full_text_with_skip_llm(monkeypatch):
     monkeypatch.setattr(
         analyze_mod,
         "resolve_full_text",
-        lambda paper, output_dir, index, unpaywall_email: FullTextResult(
+        lambda paper, output_dir, index, unpaywall_email, timeout=10: FullTextResult(
             success=True,
             path=str(output_dir / "paper.pdf"),
             source="test",
@@ -183,7 +183,7 @@ def test_analyze_fetched_papers_download_skip_llm_respects_top_k(monkeypatch):
 
     downloaded_titles = []
 
-    def fake_resolve_full_text(paper, output_dir, index, unpaywall_email):
+    def fake_resolve_full_text(paper, output_dir, index, unpaywall_email, timeout=10):
         downloaded_titles.append(paper.title)
         return FullTextResult(
             success=True,
@@ -214,6 +214,31 @@ def test_analyze_fetched_papers_download_skip_llm_respects_top_k(monkeypatch):
     assert results[0]["full_text_status"] == "downloaded"
     assert results[1]["skipped_reason"] == "相似度 0.8000 达到阈值，但未进入 top-1"
     assert results[2]["skipped_reason"] == "相似度 0.6000 达到阈值，但未进入 top-1"
+
+
+def test_analyze_fetched_papers_passes_full_text_timeout(monkeypatch):
+    tmp_path = _make_tmp_dir("analyze_fetched_download_timeout")
+    profile_path = tmp_path / "profile.npy"
+    np.save(profile_path, np.array([1.0, 0.0]))
+    monkeypatch.setattr(analyze_mod, "Embedder", FakeEmbedder)
+    seen_timeouts = []
+
+    def fake_resolve_full_text(paper, output_dir, index, unpaywall_email, timeout=10):
+        seen_timeouts.append(timeout)
+        return FullTextResult(success=False, reason="not found")
+
+    monkeypatch.setattr(analyze_mod, "resolve_full_text", fake_resolve_full_text)
+
+    analyze_mod.analyze_papers(
+        papers=[FetchedPaper(title="Timeout Paper", abstract="abstract")],
+        profile_path=str(profile_path),
+        threshold=0.0,
+        output_root=str(tmp_path / "outputs"),
+        download_full_text=True,
+        full_text_timeout=4,
+    )
+
+    assert seen_timeouts == [4]
 
 
 def test_analyze_fetched_papers_top_k_limits_llm(monkeypatch):
@@ -286,7 +311,7 @@ def test_analyze_fetched_papers_downloads_full_text_before_llm(monkeypatch):
     monkeypatch.setattr(
         analyze_mod,
         "resolve_full_text",
-        lambda paper, output_dir, index, unpaywall_email: FullTextResult(
+        lambda paper, output_dir, index, unpaywall_email, timeout=10: FullTextResult(
             success=True,
             path=str(output_dir / "paper.pdf"),
             source="test",
@@ -330,7 +355,7 @@ def test_analyze_fetched_papers_skips_llm_when_full_text_download_fails(monkeypa
     monkeypatch.setattr(
         analyze_mod,
         "resolve_full_text",
-        lambda paper, output_dir, index, unpaywall_email: FullTextResult(success=False, reason="not found"),
+        lambda paper, output_dir, index, unpaywall_email, timeout=10: FullTextResult(success=False, reason="not found"),
     )
 
     output_dir = analyze_mod.analyze_papers(

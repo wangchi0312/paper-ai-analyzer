@@ -27,6 +27,7 @@
 - 浏览器模式支持进程级 `CLARIVATE_EMAIL` / `CLARIVATE_PASSWORD` 自动登录 Clarivate；不得写入文件。真实联调显示个人账号登录后仍是 Free Web of Science profile，完整 AlertSummary 需要机构访问态。
 - 邮箱抓取已跳过 Clarivate 账户通知邮件，`password reset`、`password changed`、welcome 等不会占用 `max_emails` 的 Citation Alert 名额；审计记录 `skipped_non_alert_email_count`。
 - 支持只验证抓取和全文下载而不调用 LLM：CLI 使用 `--download-full-text --skip-llm`，前端勾选“只验证抓取和全文下载，不调用 LLM”；该模式不要求 API Key，不初始化 Analyzer，并尊重阈值/top-k。
+- 全文下载请求超时可配置：`analyze_papers(full_text_timeout=...)`、CLI `--full-text-timeout`、前端“一键周报/邮件批量”的“全文下载超时秒数”。默认 10 秒，避免开放获取查询或 PDF 下载长时间卡住前端。
 - 浏览器模式支持“手动完成 WoS/机构登录等待秒数”：前端一键周报可设置，CLI 使用 `--browser-manual-login-wait-seconds`；遇到 Clarivate/学校/CARSI 登录页时可等待用户在弹出的 Playwright Chromium 中完成认证。抓取审计记录 `browser_manual_login_wait_seconds`。
 - 浏览器打开 WoS gateway 链接时对短暂 `net::ERR_ABORTED` / frame detached 做容错，继续等待当前页面并检查记录页或登录页。
 - 前端一键周报新增运行日志区，抓取与分析流程通过 `progress_callback` 持续回报阶段状态；不再只显示转圈。
@@ -52,6 +53,7 @@ P0：真实邮箱联调
 - 2026-04-29 后续测试：第二封 Raissi Alert 已进入 WoS summary 页，页面标题显示 67 条结果，但旧 selector 未发现记录链接；已补宽松 title 元素解析，待用户复测。
 - 2026-04-29 最新一轮测试：浏览器扩展到 89 条、最终候选 90 篇，但混入大量 `arrow_drop_down` 期刊筛选项；已补 facet/dropdown 过滤，待用户复测。若过滤后候选约 48 篇，需要继续增强滚动/分页；若接近 67-73 篇，则抓取基本达标。
 - 2026-04-29 再次测试：候选回落到 50，误抓已清理，但只抓到第一页；已补 summary URL 页码兜底，待用户复测。
+- 2026-04-29 用户反馈卡在全文下载：抓取审计已完成但没有新输出目录，说明卡在抓取后的全文下载/分析阶段；已将全文下载默认超时降至 10 秒并暴露到前端/CLI。
 - 如果用户继续反馈卡住，优先查看前端运行日志最后一行和 `fetch_audit.json`；若最后一行是“浏览器扩展”，说明仍停在 WoS/机构登录或页面解析阶段。
 - 若用户期望最近两封邮件合计 73 篇但审计只有个位数/十几篇，先检查 `email_details[*].subject` 是否是目标 Alert，再看每个 `alert_links` 的扩展数量。
 - 如果 subject 正确但浏览器错误显示 `access.clarivate.com/login` 或 `forgotpassword`，说明 Playwright profile 没有有效 WoS/Clarivate 访问态；需要让用户在弹出的 Playwright Chromium 中完成一次认证，或后续实现连接用户日常 Chrome 登录态。

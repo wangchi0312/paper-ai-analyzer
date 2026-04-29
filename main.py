@@ -31,6 +31,7 @@ def main() -> None:
     analyze_parser.add_argument("--top-k", type=int, default=None, help="邮件批量模式下只允许相似度最高的前 N 篇触发 LLM")
     analyze_parser.add_argument("--download-full-text", action="store_true", help="邮件批量模式下下载全文后再深度解读")
     analyze_parser.add_argument("--unpaywall-email", default=None, help="Unpaywall 查询邮箱，用于开放获取全文查找")
+    analyze_parser.add_argument("--full-text-timeout", type=int, default=10, help="单次全文查找/下载请求超时秒数")
 
     fetch_parser = subparsers.add_parser("fetch-papers", help="从 WoS Citation Alert 邮件获取论文")
     fetch_parser.add_argument("--since", default=None, help="只获取该日期之后的邮件，格式 YYYY-MM-DD")
@@ -66,6 +67,7 @@ def main() -> None:
     run_parser.add_argument("--top-k", type=int, default=None, help="只允许相似度最高的前 N 篇触发 LLM")
     run_parser.add_argument("--download-full-text", action="store_true", help="下载全文后再深度解读")
     run_parser.add_argument("--unpaywall-email", default=None, help="Unpaywall 查询邮箱，用于开放获取全文查找")
+    run_parser.add_argument("--full-text-timeout", type=int, default=10, help="单次全文查找/下载请求超时秒数")
 
     args = parser.parse_args()
 
@@ -101,6 +103,7 @@ def main() -> None:
                 top_k=args.top_k,
                 download_full_text=args.download_full_text,
                 unpaywall_email=args.unpaywall_email,
+                full_text_timeout=args.full_text_timeout,
             )
         else:
             if not args.pdf:
@@ -163,6 +166,7 @@ def main() -> None:
             top_k=args.top_k,
             download_full_text=args.download_full_text,
             unpaywall_email=args.unpaywall_email,
+            full_text_timeout=args.full_text_timeout,
         )
         print(f"分析结果已保存：{output_dir}")
 
