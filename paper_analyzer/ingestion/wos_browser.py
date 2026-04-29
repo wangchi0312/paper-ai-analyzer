@@ -173,8 +173,7 @@ def _collect_wos_records_across_pages(
 ) -> list[FetchedPaper]:
     papers: list[FetchedPaper] = []
     for _ in range(max_pages):
-        _scroll_to_load_records(page)
-        papers.extend(parse_wos_result_page(page.content(), source_email_id=source_email_id))
+        papers.extend(_collect_wos_records_from_current_page(page, source_email_id=source_email_id))
         if not _go_to_next_results_page(page, timeout_ms=timeout_ms):
             break
         _wait_for_wos_records(page, timeout_ms=timeout_ms)
@@ -318,23 +317,68 @@ def _wait_briefly(page) -> None:
         pass
 
 
-def _scroll_to_load_records(page, max_scrolls: int = 10, settle_ms: int = 800) -> None:
-    last_count = -1
+def _collect_wos_records_from_current_page(
+    page,
+    source_email_id: str | None,
+    max_scrolls: int = 80,
+    settle_ms: int = 500,
+) -> list[FetchedPaper]:
+    papers: list[FetchedPaper] = []
+    last_keys: set[str] = set()
     stable_rounds = 0
     for _ in range(max_scrolls):
+        papers.extend(parse_wos_result_page(page.content(), source_email_id=source_email_id))
+        keys = {_paper_title_key(paper) for paper in papers}
+        moved = _scroll_next_record_batch(page)
         try:
-            page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
             page.wait_for_timeout(settle_ms)
-            count = _record_link_count(page)
         except Exception:
-            return
-        if count == last_count:
+            pass
+        if keys == last_keys and not moved:
             stable_rounds += 1
         else:
             stable_rounds = 0
-            last_count = count
+            last_keys = keys
         if stable_rounds >= 2:
-            return
+            break
+    papers.extend(parse_wos_result_page(page.content(), source_email_id=source_email_id))
+    return _deduplicate_by_title(papers)
+
+
+def _scroll_next_record_batch(page) -> bool:
+    script = """
+    () => {
+      const candidates = [
+        document.scrollingElement,
+        document.documentElement,
+        document.body,
+        ...Array.from(document.querySelectorAll('*')).filter((el) => {
+          const style = window.getComputedStyle(el);
+          return el.scrollHeight > el.clientHeight + 20 &&
+            ['auto', 'scroll', 'overlay'].includes(style.overflowY);
+        })
+      ].filter(Boolean);
+      let moved = false;
+      for (const el of candidates) {
+        const before = el.scrollTop;
+        const step = Math.max(Math.floor(el.clientHeight * 0.85), 500);
+        el.scrollTop = Math.min(el.scrollTop + step, el.scrollHeight);
+        if (el.scrollTop !== before) moved = true;
+      }
+      const beforeWindow = window.scrollY;
+      window.scrollBy(0, Math.max(Math.floor(window.innerHeight * 0.85), 500));
+      if (window.scrollY !== beforeWindow) moved = true;
+      return moved;
+    }
+    """
+    try:
+        return bool(page.evaluate(script))
+    except Exception:
+        try:
+            page.evaluate("window.scrollBy(0, Math.max(window.innerHeight * 0.85, 500))")
+            return True
+        except Exception:
+            return False
 
 
 def _record_link_count(page) -> int:
@@ -347,14 +391,34 @@ def _record_link_count(page) -> int:
 
 def _go_to_next_results_page(page, timeout_ms: int) -> bool:
     selectors = [
+        "button[data-ta*='next']:not([disabled])",
+        "a[data-ta*='next']",
+        "button[class*='next']:not([disabled])",
+        "a[class*='next']",
         "button[aria-label*='Next']:not([disabled])",
+        "button[aria-label*='next']:not([disabled])",
+        "button[aria-label*='下一']:not([disabled])",
         "a[aria-label*='Next']",
+        "a[aria-label*='next']",
+        "a[aria-label*='下一']",
         "button[title*='Next']:not([disabled])",
+        "button[title*='next']:not([disabled])",
+        "button[title*='下一']:not([disabled])",
         "a[title*='Next']",
+        "a[title*='next']",
+        "a[title*='下一']",
         "button:has-text('Next')",
+        "button:has-text('next')",
+        "button:has-text('>')",
+        "button:has-text('›')",
         "a:has-text('Next')",
+        "a:has-text('next')",
+        "a:has-text('>')",
+        "a:has-text('›')",
         "button:has-text('下一页')",
+        "button:has-text('下一')",
         "a:has-text('下一页')",
+        "a:has-text('下一')",
     ]
     current_url = getattr(page, "url", "")
     for selector in selectors:
@@ -370,7 +434,43 @@ def _go_to_next_results_page(page, timeout_ms: int) -> bool:
                 return True
         except Exception:
             continue
+    if _click_next_button_by_dom(page, timeout_ms=timeout_ms):
+        _wait_after_navigation_or_update(page, current_url=current_url, timeout_ms=timeout_ms)
+        return True
     return False
+
+
+def _click_next_button_by_dom(page, timeout_ms: int) -> bool:
+    script = """
+    () => {
+      const labels = ['next', '下一', '>', '›', '»'];
+      const candidates = Array.from(document.querySelectorAll('button, a'));
+      for (const el of candidates) {
+        const text = [
+          el.innerText,
+          el.textContent,
+          el.getAttribute('aria-label'),
+          el.getAttribute('title'),
+          el.getAttribute('data-ta'),
+          el.className
+        ].filter(Boolean).join(' ').toLowerCase();
+        const disabled = el.disabled || el.getAttribute('aria-disabled') === 'true' || el.hasAttribute('disabled');
+        const visible = !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length);
+        if (!disabled && visible && labels.some((label) => text.includes(label))) {
+          el.click();
+          return true;
+        }
+      }
+      return false;
+    }
+    """
+    try:
+        clicked = bool(page.evaluate(script))
+        if clicked:
+            page.wait_for_timeout(min(timeout_ms, 1200))
+        return clicked
+    except Exception:
+        return False
 
 
 def _wait_after_navigation_or_update(page, current_url: str, timeout_ms: int) -> None:
@@ -444,9 +544,13 @@ def _deduplicate_by_title(papers: list[FetchedPaper]) -> list[FetchedPaper]:
     seen: set[str] = set()
     unique: list[FetchedPaper] = []
     for paper in papers:
-        key = " ".join(paper.title.lower().split())
+        key = _paper_title_key(paper)
         if key in seen:
             continue
         seen.add(key)
         unique.append(paper)
     return unique
+
+
+def _paper_title_key(paper: FetchedPaper) -> str:
+    return " ".join(paper.title.lower().split())

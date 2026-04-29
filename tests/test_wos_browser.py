@@ -1,6 +1,7 @@
 import pytest
 
 from paper_analyzer.ingestion.wos_browser import (
+    _collect_wos_records_from_current_page,
     _goto_wos_url,
     _wait_for_wos_records,
     _wait_for_wos_records_or_login,
@@ -107,3 +108,43 @@ def test_goto_wos_url_ignores_gateway_navigation_abort():
     _goto_wos_url(page, "https://www.webofscience.com/api/gateway", timeout_ms=1000)
 
     assert page.waited is True
+
+
+def test_collect_wos_records_accumulates_virtualized_scroll_results():
+    class FakePage:
+        def __init__(self):
+            self.index = 0
+            self.pages = [
+                """
+                <a href="/wos/woscc/full-record/WOS:001">First virtualized physics-informed paper title</a>
+                <a href="/wos/woscc/full-record/WOS:002">Second virtualized physics-informed paper title</a>
+                """,
+                """
+                <a href="/wos/woscc/full-record/WOS:002">Second virtualized physics-informed paper title</a>
+                <a href="/wos/woscc/full-record/WOS:003">Third virtualized physics-informed paper title</a>
+                """,
+                """
+                <a href="/wos/woscc/full-record/WOS:004">Fourth virtualized physics-informed paper title</a>
+                """,
+            ]
+
+        def content(self):
+            return f"<html><body>{self.pages[self.index]}</body></html>"
+
+        def evaluate(self, script):
+            if self.index < len(self.pages) - 1:
+                self.index += 1
+                return True
+            return False
+
+        def wait_for_timeout(self, timeout):
+            pass
+
+    papers = _collect_wos_records_from_current_page(FakePage(), source_email_id="<id@example.com>")
+
+    assert [paper.title for paper in papers] == [
+        "First virtualized physics-informed paper title",
+        "Second virtualized physics-informed paper title",
+        "Third virtualized physics-informed paper title",
+        "Fourth virtualized physics-informed paper title",
+    ]

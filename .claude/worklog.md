@@ -6,6 +6,42 @@
 
 ## 2026-04-29
 
+### 补充：WoS 虚拟列表滚动收集
+
+### 做了什么
+- 读取用户最新测试结果：
+  - 最近两封目标 Alert 已正确命中。
+  - 浏览器扩展无错误，`browser_expanded_paper_count=10`。
+  - Raissi 71 篇邮件只新增 5 篇，最终候选 12 篇，仍未抓完整。
+  - 全文下载链路已验证可用，Top 1 论文成功从 arXiv 下载 PDF。
+- 将 WoS 当前页解析从“滚动结束后解析一次”改为“每滚动一段就解析并累计一次”。
+- 增强下一页按钮识别，补充英文小写、中文“下一”、图标文本、`data-ta`/class 里的 next 等情况。
+- 新增测试覆盖虚拟列表：同一页滚动过程中 DOM 替换可见记录时，解析器能累计所有出现过的标题链接。
+
+### 为什么
+- WoS 页面很可能使用虚拟列表或懒加载，DOM 一次只保留当前可见的少量记录；旧逻辑会漏掉滚动过程中出现过但最终被卸载的记录。
+- 用户期望最近两封邮件合计 73 篇，但当前只到 12 篇，说明已经越过登录/浏览器错误阶段，瓶颈变成页面滚动与分页解析。
+
+### 影响文件
+- .claude/spec.md
+- .claude/worklog.md
+- .claude/handoff.md
+- paper_analyzer/ingestion/wos_browser.py
+- tests/test_wos_browser.py
+
+### 验证结果
+- 针对性测试：`31 passed`。
+- 语法检查：`py_compile app.py main.py pipeline/fetch_papers.py pipeline/analyze_papers.py paper_analyzer/ingestion/wos_browser.py paper_analyzer/data/schema.py` 通过。
+
+### 下一步
+- 用户下一轮测试仍只验证抓取和全文下载，不调用 LLM。
+- 重点观察 `browser_expanded_paper_count` 是否从 10 明显增加，理想情况下 Raissi 71 results 应接近 71 或至少接近页面当前可展示的 50。
+- 如果仍停在 10 左右，需要进一步记录真实 WoS 页面分页/列表控件结构，或改走 WoS 前端接口请求。
+
+---
+
+## 2026-04-29
+
 ### 补充：前端进度日志与浏览器窗口复用
 
 ### 做了什么
