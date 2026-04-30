@@ -11,6 +11,32 @@ def test_get_html_body_single_part():
     assert _get_html_body(msg) == "<p>Hello</p>\n"
 
 
+def test_get_html_body_returns_none_for_plain_text_only():
+    msg = EmailMessage()
+    msg.set_content("plain only")
+
+    assert _get_html_body(msg) is None
+
+
+def test_get_html_body_decodes_bad_charset_with_replacement():
+    msg = EmailMessage()
+    msg.set_payload(b"<p>\xff</p>")
+    msg.set_type("text/html")
+    msg.set_param("charset", "utf-8")
+
+    html = _get_html_body(msg)
+
+    assert html.startswith("<p>")
+    assert "�" in html
+
+
+def test_wos_alert_email_filter_requires_alert_markers():
+    assert not _looks_like_wos_alert_email(
+        "Web of Science",
+        "<html>General Clarivate account notice</html>",
+    )
+
+
 def test_extract_alert_summary_links():
     html = """
     <a href="http://snowplow.apps.clarivate.com/r/tp2?u=https%3A%2F%2Fwww.webofscience.com%2Fapi%2Fgateway%3FDestLinkType%3DAlertSummary%26KeyQueryID%3Dabc">

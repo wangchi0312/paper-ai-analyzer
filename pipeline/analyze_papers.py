@@ -30,6 +30,7 @@ def analyze_papers(
     download_full_text: bool = False,
     unpaywall_email: str | None = None,
     full_text_timeout: int = 10,
+    manual_pdf_dir: str | None = None,
     progress_callback: Callable[[str], None] | None = None,
 ) -> Path:
     if not papers:
@@ -43,17 +44,41 @@ def analyze_papers(
 
     _emit_progress(progress_callback, "加载兴趣向量并准备相似度计算")
     profile = np.load(profile_file)
-    analysis_inputs = [_select_fetch_text(paper, max_chars=max_chars) for paper in papers]
-    embedder = Embedder(model_name=model_name)
-    _emit_progress(progress_callback, f"正在计算 {len(papers)} 篇候选论文的 embedding 和相似度")
-    embeddings = embedder.encode(analysis_inputs)
+    valid_inputs: list[tuple[int, FetchedPaper, str]] = []
+    invalid_papers: dict[int, Paper] = {}
+    for index, fetched in enumerate(papers):
+        try:
+            selected_text = _select_fetch_text(fetched, max_chars=max_chars)
+        except ValueError as exc:
+            paper = Paper(
+                title=fetched.title,
+                source_path=None,
+                link=fetched.link,
+                abstract=fetched.abstract,
+                selected_text="",
+                full_text="",
+                source_email_id=fetched.source_email_id,
+            )
+            paper.stage_status = "invalid_input"
+            paper.skipped_reason = str(exc)
+            invalid_papers[index] = paper
+            _emit_progress(progress_callback, f"[{index + 1}/{len(papers)}] 跳过：{exc}")
+            continue
+        valid_inputs.append((index, fetched, selected_text))
+    if valid_inputs:
+        embedder = Embedder(model_name=model_name)
+        _emit_progress(progress_callback, f"正在计算 {len(valid_inputs)} 篇候选论文的 embedding 和相似度")
+        embeddings = embedder.encode([selected_text for _index, _fetched, selected_text in valid_inputs])
+    else:
+        embeddings = []
 
     analyzer: Analyzer | None = None
-    analyzed: list[Paper] = []
+    analyzed_by_index: dict[int, Paper] = dict(invalid_papers)
     scored_items = [
-        (index, cosine_similarity(embedding, profile))
-        for index, embedding in enumerate(embeddings)
+        (original_index, cosine_similarity(embedding, profile))
+        for (original_index, _fetched, _selected_text), embedding in zip(valid_inputs, embeddings)
     ]
+    score_by_index = dict(scored_items)
     llm_allowed_indexes = _select_top_k_indexes(scored_items, top_k)
     explicit_output_dir = None
     fulltext_dir = None
@@ -62,8 +87,10 @@ def analyze_papers(
         fulltext_dir = explicit_output_dir / "papers"
         _emit_progress(progress_callback, f"将为达到阈值且进入 top-k 的论文下载全文：{fulltext_dir}")
 
-    for index, (fetched, selected_text, embedding) in enumerate(zip(papers, analysis_inputs, embeddings)):
-        score = scored_items[index][1]
+    for embedding_index, (original_index, fetched, selected_text) in enumerate(valid_inputs):
+        display_index = original_index + 1
+        embedding = embeddings[embedding_index]
+        score = score_by_index[original_index]
         paper = Paper(
             title=fetched.title,
             source_path=None,
@@ -79,58 +106,67 @@ def analyze_papers(
         should_limit_to_top_k = top_k is not None and (download_full_text or not skip_llm)
 
         if score < threshold:
+            paper.stage_status = "below_threshold"
             paper.skipped_reason = f"相似度 {score:.4f} 低于阈值 {threshold:.4f}"
-            _emit_progress(progress_callback, f"[{index + 1}/{len(papers)}] 跳过：相似度 {score:.4f} 低于阈值")
-        elif should_limit_to_top_k and index not in llm_allowed_indexes:
+            _emit_progress(progress_callback, f"[{display_index}/{len(papers)}] 跳过：相似度 {score:.4f} 低于阈值")
+        elif should_limit_to_top_k and original_index not in llm_allowed_indexes:
+            paper.stage_status = "outside_top_k"
             paper.skipped_reason = f"相似度 {score:.4f} 达到阈值，但未进入 top-{top_k}"
-            _emit_progress(progress_callback, f"[{index + 1}/{len(papers)}] 跳过：未进入 top-{top_k}")
+            _emit_progress(progress_callback, f"[{display_index}/{len(papers)}] 跳过：未进入 top-{top_k}")
         else:
             try:
                 llm_text = _build_fetch_llm_text(fetched, max_chars=llm_max_chars)
                 if download_full_text:
                     assert fulltext_dir is not None
-                    _emit_progress(progress_callback, f"[{index + 1}/{len(papers)}] 下载全文：{fetched.title[:80]}")
+                    _emit_progress(progress_callback, f"[{display_index}/{len(papers)}] 下载全文：{fetched.title[:80]}")
                     fulltext_result = resolve_full_text(
                         fetched,
                         output_dir=fulltext_dir,
-                        index=index + 1,
+                        index=display_index,
                         unpaywall_email=unpaywall_email,
                         timeout=full_text_timeout,
+                        manual_pdf_dir=manual_pdf_dir,
                     )
                     paper.full_text_status = "downloaded" if fulltext_result.success else "failed"
                     paper.full_text_source = fulltext_result.source
                     paper.full_text_path = fulltext_result.path
                     if not fulltext_result.success:
+                        paper.stage_status = "fulltext_failed"
                         paper.skipped_reason = f"全文获取失败：{fulltext_result.reason}"
-                        _emit_progress(progress_callback, f"[{index + 1}/{len(papers)}] 全文获取失败：{fulltext_result.reason}")
-                        analyzed.append(paper)
+                        _emit_progress(progress_callback, f"[{display_index}/{len(papers)}] 全文获取失败：{fulltext_result.reason}")
+                        analyzed_by_index[original_index] = paper
                         continue
                     full_text = extract_text(fulltext_result.path)
                     if not full_text.strip():
+                        paper.stage_status = "text_extract_failed"
                         paper.skipped_reason = "全文下载成功，但无法提取有效文本"
-                        _emit_progress(progress_callback, f"[{index + 1}/{len(papers)}] 全文下载成功，但无法提取有效文本")
-                        analyzed.append(paper)
+                        _emit_progress(progress_callback, f"[{display_index}/{len(papers)}] 全文下载成功，但无法提取有效文本")
+                        analyzed_by_index[original_index] = paper
                         continue
                     paper.full_text = full_text
                     paper.selected_text = full_text[:max_chars]
                     llm_text = full_text[:llm_max_chars]
                 if skip_llm:
+                    paper.stage_status = "llm_skipped"
                     paper.skipped_reason = "用户指定跳过 LLM 分析"
-                    _emit_progress(progress_callback, f"[{index + 1}/{len(papers)}] 全文验证完成，按配置跳过 LLM")
-                    analyzed.append(paper)
+                    _emit_progress(progress_callback, f"[{display_index}/{len(papers)}] 全文验证完成，按配置跳过 LLM")
+                    analyzed_by_index[original_index] = paper
                     continue
                 if analyzer is None:
                     _emit_progress(progress_callback, "初始化 LLM 分析器")
                     analyzer = Analyzer(provider=provider)
-                _emit_progress(progress_callback, f"[{index + 1}/{len(papers)}] 调用 LLM 深度解读")
+                _emit_progress(progress_callback, f"[{display_index}/{len(papers)}] 调用 LLM 深度解读")
                 paper.analysis = analyzer.analyze(llm_text, research_topic=research_topic)
                 _fill_analysis_metadata_from_fetch(paper.analysis, fetched)
+                paper.stage_status = "completed"
             except Exception as exc:
+                paper.stage_status = "llm_failed"
                 paper.skipped_reason = f"LLM 分析未完成：{exc}"
-                _emit_progress(progress_callback, f"[{index + 1}/{len(papers)}] 分析未完成：{exc}")
+                _emit_progress(progress_callback, f"[{display_index}/{len(papers)}] 分析未完成：{exc}")
 
-        analyzed.append(paper)
+        analyzed_by_index[original_index] = paper
 
+    analyzed = [analyzed_by_index[index] for index in range(len(papers))]
     output_dir = write_outputs(
         analyzed,
         output_root=output_root,
@@ -182,13 +218,17 @@ def analyze_pdf(
     )
 
     if score < threshold:
+        paper.stage_status = "below_threshold"
         paper.skipped_reason = f"相似度 {score:.4f} 低于阈值 {threshold:.4f}"
     elif skip_llm:
+        paper.stage_status = "llm_skipped"
         paper.skipped_reason = "用户指定跳过 LLM 分析"
     else:
         try:
             paper.analysis = Analyzer(provider=provider).analyze(full_text[:llm_max_chars], research_topic=research_topic)
+            paper.stage_status = "completed"
         except Exception as exc:
+            paper.stage_status = "llm_failed"
             paper.skipped_reason = f"LLM 分析未完成：{exc}"
 
     return write_outputs([paper], output_root=output_root, research_topic=research_topic)
@@ -274,6 +314,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--download-full-text", action="store_true", help="邮件批量模式下下载全文后再深度解读")
     parser.add_argument("--unpaywall-email", default=None, help="Unpaywall 查询邮箱，用于开放获取全文查找")
     parser.add_argument("--full-text-timeout", type=int, default=10, help="单次全文查找/下载请求超时秒数")
+    parser.add_argument("--manual-pdf-dir", default=None, help="手动 PDF 兜底目录，按 DOI/标题匹配后用于全文解析")
     return parser.parse_args()
 
 
@@ -297,6 +338,7 @@ def main() -> None:
             download_full_text=args.download_full_text,
             unpaywall_email=args.unpaywall_email,
             full_text_timeout=args.full_text_timeout,
+            manual_pdf_dir=args.manual_pdf_dir,
         )
     else:
         if not args.pdf:

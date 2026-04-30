@@ -108,6 +108,7 @@ def test_analyze_fetched_papers_skip_llm(monkeypatch):
     assert results[0]["link"] == "https://example.com/paper"
     assert results[0]["score"] == 1.0
     assert results[0]["skipped_reason"] == "用户指定跳过 LLM 分析"
+    assert results[0]["stage_status"] == "llm_skipped"
 
 
 def test_analyze_fetched_papers_skip_llm_ignores_top_k(monkeypatch):
@@ -143,7 +144,7 @@ def test_analyze_fetched_papers_downloads_full_text_with_skip_llm(monkeypatch):
     monkeypatch.setattr(
         analyze_mod,
         "resolve_full_text",
-        lambda paper, output_dir, index, unpaywall_email, timeout=10: FullTextResult(
+        lambda paper, output_dir, index, unpaywall_email, timeout=10, manual_pdf_dir=None: FullTextResult(
             success=True,
             path=str(output_dir / "paper.pdf"),
             source="test",
@@ -183,7 +184,7 @@ def test_analyze_fetched_papers_download_skip_llm_respects_top_k(monkeypatch):
 
     downloaded_titles = []
 
-    def fake_resolve_full_text(paper, output_dir, index, unpaywall_email, timeout=10):
+    def fake_resolve_full_text(paper, output_dir, index, unpaywall_email, timeout=10, manual_pdf_dir=None):
         downloaded_titles.append(paper.title)
         return FullTextResult(
             success=True,
@@ -223,7 +224,7 @@ def test_analyze_fetched_papers_passes_full_text_timeout(monkeypatch):
     monkeypatch.setattr(analyze_mod, "Embedder", FakeEmbedder)
     seen_timeouts = []
 
-    def fake_resolve_full_text(paper, output_dir, index, unpaywall_email, timeout=10):
+    def fake_resolve_full_text(paper, output_dir, index, unpaywall_email, timeout=10, manual_pdf_dir=None):
         seen_timeouts.append(timeout)
         return FullTextResult(success=False, reason="not found")
 
@@ -239,6 +240,31 @@ def test_analyze_fetched_papers_passes_full_text_timeout(monkeypatch):
     )
 
     assert seen_timeouts == [4]
+
+
+def test_analyze_fetched_papers_passes_manual_pdf_dir(monkeypatch):
+    tmp_path = _make_tmp_dir("analyze_fetched_manual_pdf_dir")
+    profile_path = tmp_path / "profile.npy"
+    np.save(profile_path, np.array([1.0, 0.0]))
+    monkeypatch.setattr(analyze_mod, "Embedder", FakeEmbedder)
+    seen_manual_dirs = []
+
+    def fake_resolve_full_text(paper, output_dir, index, unpaywall_email, timeout=10, manual_pdf_dir=None):
+        seen_manual_dirs.append(manual_pdf_dir)
+        return FullTextResult(success=False, reason="not found")
+
+    monkeypatch.setattr(analyze_mod, "resolve_full_text", fake_resolve_full_text)
+
+    analyze_mod.analyze_papers(
+        papers=[FetchedPaper(title="Manual Dir Paper", abstract="abstract")],
+        profile_path=str(profile_path),
+        threshold=0.0,
+        output_root=str(tmp_path / "outputs"),
+        download_full_text=True,
+        manual_pdf_dir="data/manual_pdfs",
+    )
+
+    assert seen_manual_dirs == ["data/manual_pdfs"]
 
 
 def test_analyze_fetched_papers_top_k_limits_llm(monkeypatch):
@@ -311,7 +337,7 @@ def test_analyze_fetched_papers_downloads_full_text_before_llm(monkeypatch):
     monkeypatch.setattr(
         analyze_mod,
         "resolve_full_text",
-        lambda paper, output_dir, index, unpaywall_email, timeout=10: FullTextResult(
+        lambda paper, output_dir, index, unpaywall_email, timeout=10, manual_pdf_dir=None: FullTextResult(
             success=True,
             path=str(output_dir / "paper.pdf"),
             source="test",
@@ -355,7 +381,7 @@ def test_analyze_fetched_papers_skips_llm_when_full_text_download_fails(monkeypa
     monkeypatch.setattr(
         analyze_mod,
         "resolve_full_text",
-        lambda paper, output_dir, index, unpaywall_email, timeout=10: FullTextResult(success=False, reason="not found"),
+        lambda paper, output_dir, index, unpaywall_email, timeout=10, manual_pdf_dir=None: FullTextResult(success=False, reason="not found"),
     )
 
     output_dir = analyze_mod.analyze_papers(
@@ -370,3 +396,50 @@ def test_analyze_fetched_papers_skips_llm_when_full_text_download_fails(monkeypa
     assert results[0]["analysis"] is None
     assert results[0]["full_text_status"] == "failed"
     assert results[0]["skipped_reason"] == "全文获取失败：not found"
+    assert results[0]["stage_status"] == "fulltext_failed"
+
+
+def test_analyze_fetched_papers_handles_empty_title_and_abstract(monkeypatch):
+    tmp_path = _make_tmp_dir("analyze_fetched_empty_input")
+    profile_path = tmp_path / "profile.npy"
+    np.save(profile_path, np.array([1.0, 0.0]))
+    monkeypatch.setattr(analyze_mod, "Embedder", FakeEmbedder)
+
+    output_dir = analyze_mod.analyze_papers(
+        papers=[FetchedPaper(title="", abstract="")],
+        profile_path=str(profile_path),
+        output_root=str(tmp_path / "outputs"),
+        skip_llm=True,
+    )
+
+    results = json.loads((output_dir / "results.json").read_text(encoding="utf-8"))
+    assert results[0]["title"] == ""
+    assert results[0]["stage_status"] == "invalid_input"
+    assert results[0]["skipped_reason"] == "邮件论文缺少标题和摘要，无法分析"
+
+
+def test_analyze_fetched_papers_marks_llm_failure(monkeypatch):
+    tmp_path = _make_tmp_dir("analyze_fetched_llm_failure")
+    profile_path = tmp_path / "profile.npy"
+    np.save(profile_path, np.array([1.0, 0.0]))
+    monkeypatch.setattr(analyze_mod, "Embedder", FakeEmbedder)
+
+    class FailingAnalyzer:
+        def __init__(self, provider=None):
+            pass
+
+        def analyze(self, text, research_topic=None):
+            raise ValueError("LLM 未返回有效 JSON")
+
+    monkeypatch.setattr(analyze_mod, "Analyzer", FailingAnalyzer)
+
+    output_dir = analyze_mod.analyze_papers(
+        papers=[FetchedPaper(title="Bad LLM", abstract="abstract")],
+        profile_path=str(profile_path),
+        threshold=0.0,
+        output_root=str(tmp_path / "outputs"),
+    )
+
+    results = json.loads((output_dir / "results.json").read_text(encoding="utf-8"))
+    assert results[0]["stage_status"] == "llm_failed"
+    assert "LLM 未返回有效 JSON" in results[0]["skipped_reason"]

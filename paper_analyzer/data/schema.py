@@ -90,6 +90,13 @@ class FetchAudit:
     browser_duplicate_paper_count: int = 0
     browser_expand_error_count: int = 0
     browser_expand_last_error: str | None = None
+    metadata_enriched_count: int = 0
+    duration_seconds: float = 0.0
+    email_scan_seconds: float = 0.0
+    email_parse_seconds: float = 0.0
+    requests_expand_seconds: float = 0.0
+    browser_expand_seconds: float = 0.0
+    metadata_enrich_seconds: float = 0.0
     email_details: list[dict[str, Any]] = field(default_factory=list)
 
 
@@ -109,6 +116,7 @@ class Paper:
     full_text_path: str | None = None
     full_text_source: str | None = None
     full_text_status: str | None = None
+    stage_status: str = "scored"
 
     def to_dict(self, include_full_text: bool = False, include_embedding: bool = False) -> dict[str, Any]:
         data = asdict(self)

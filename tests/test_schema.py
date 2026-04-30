@@ -1,4 +1,4 @@
-from paper_analyzer.data.schema import Paper, PaperAnalysis
+from paper_analyzer.data.schema import FetchAudit, Paper, PaperAnalysis
 
 
 def _sample_analysis() -> PaperAnalysis:
@@ -132,3 +132,29 @@ def test_paper_analysis_roundtrip():
     d = paper.to_dict(include_full_text=True, include_embedding=True)
     assert d["analysis"]["first_author"] == "Zhang San"
     assert d["analysis"]["core_hypotheses"] == ["hypothesis 1", "hypothesis 2"]
+
+
+def test_paper_defaults_to_scored_stage_status():
+    paper = Paper(title="Test")
+
+    assert paper.to_dict()["stage_status"] == "scored"
+
+
+def test_fetch_audit_includes_timing_fields():
+    audit = FetchAudit(
+        fetched_at="2026-04-30T12:00:00",
+        since_date=None,
+        max_emails=1,
+        no_web=True,
+        email_count=1,
+        parsed_paper_count=1,
+        unique_paper_count=1,
+        duplicate_paper_count=0,
+        output_path="out.json",
+        duration_seconds=1.2,
+        email_scan_seconds=0.3,
+    )
+
+    assert audit.duration_seconds == 1.2
+    assert audit.email_scan_seconds == 0.3
+    assert audit.metadata_enrich_seconds == 0.0

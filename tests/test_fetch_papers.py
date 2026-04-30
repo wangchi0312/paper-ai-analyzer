@@ -150,6 +150,7 @@ def test_fetch_papers_keeps_email_content_when_web_enrich_fails(monkeypatch):
         raise RuntimeError("network unavailable")
 
     monkeypatch.setattr(fetch_mod, "enrich_from_web", fail_enrich)
+    monkeypatch.setattr(fetch_mod, "enrich_paper_metadata", lambda paper: paper)
 
     papers = fetch_mod.fetch_papers(
         max_emails=1,
@@ -164,7 +165,101 @@ def test_fetch_papers_keeps_email_content_when_web_enrich_fails(monkeypatch):
     assert json.loads(output_path.read_text(encoding="utf-8"))[0]["title"] == "Fallback Paper"
 
 
-def test_fetch_papers_passes_ignore_seen(monkeypatch):
+def test_fetch_papers_counts_metadata_enrichment(monkeypatch):
+    tmp_dir = _make_tmp_dir("fetch_metadata_enrich")
+    output_path = tmp_dir / "fetched.json"
+    audit_path = tmp_dir / "audit.json"
+
+    monkeypatch.setattr(
+        fetch_mod,
+        "fetch_wos_emails_with_stats",
+        lambda since_date, max_emails, ignore_seen=False: (
+            [("<1@example.com>", "Web of Science Alert", "<html>1</html>")],
+            _email_stats(1),
+        ),
+    )
+    monkeypatch.setattr(
+        fetch_mod,
+        "parse_wos_email",
+        lambda html, source_email_id: [
+            FetchedPaper(title="Metadata Paper", abstract="", source_email_id=source_email_id),
+        ],
+    )
+    monkeypatch.setattr(fetch_mod, "enrich_from_web", lambda paper: paper)
+
+    def enrich_metadata(paper):
+        paper.doi = "10.1/enriched"
+        paper.authors = "A; B"
+        paper.venue = "Journal"
+        paper.abstract = "Enriched abstract"
+        return paper
+
+    monkeypatch.setattr(fetch_mod, "enrich_paper_metadata", enrich_metadata)
+
+    papers = fetch_mod.fetch_papers(
+        max_emails=1,
+        no_web=False,
+        output_path=str(output_path),
+        audit_output_path=str(audit_path),
+    )
+
+    audit = json.loads(audit_path.read_text(encoding="utf-8"))
+    assert papers[0].doi == "10.1/enriched"
+    assert audit["metadata_enriched_count"] == 1
+    assert audit["email_details"][0]["metadata_enriched_count"] == 1
+    assert audit["duration_seconds"] >= 0
+    assert audit["email_scan_seconds"] >= 0
+    assert audit["email_parse_seconds"] >= 0
+    assert audit["metadata_enrich_seconds"] >= 0
+
+
+def test_fetch_papers_enriches_after_deduplication(monkeypatch):
+    tmp_dir = _make_tmp_dir("fetch_enrich_after_dedup")
+    output_path = tmp_dir / "fetched.json"
+    audit_path = tmp_dir / "audit.json"
+    enrich_calls = []
+
+    monkeypatch.setattr(
+        fetch_mod,
+        "fetch_wos_emails_with_stats",
+        lambda since_date, max_emails, ignore_seen=False: (
+            [
+                ("<1@example.com>", "Web of Science Alert", "<html>1</html>"),
+                ("<2@example.com>", "Web of Science Alert", "<html>2</html>"),
+            ],
+            _email_stats(2),
+        ),
+    )
+    monkeypatch.setattr(
+        fetch_mod,
+        "parse_wos_email",
+        lambda html, source_email_id: [
+            FetchedPaper(title="Repeated Paper", abstract="", doi="10.1/repeated", source_email_id=source_email_id),
+        ],
+    )
+    monkeypatch.setattr(fetch_mod, "enrich_from_web", lambda paper: paper)
+
+    def enrich_metadata(paper):
+        enrich_calls.append(paper.title)
+        paper.abstract = "enriched"
+        return paper
+
+    monkeypatch.setattr(fetch_mod, "enrich_paper_metadata", enrich_metadata)
+
+    papers = fetch_mod.fetch_papers(
+        max_emails=2,
+        no_web=False,
+        output_path=str(output_path),
+        audit_output_path=str(audit_path),
+    )
+
+    audit = json.loads(audit_path.read_text(encoding="utf-8"))
+    assert len(papers) == 1
+    assert enrich_calls == ["Repeated Paper"]
+    assert audit["parsed_paper_count"] == 2
+    assert audit["unique_paper_count"] == 1
+    assert audit["metadata_enriched_count"] == 1
+
     tmp_dir = _make_tmp_dir("fetch_ignore_seen")
     output_path = tmp_dir / "fetched.json"
     audit_path = tmp_dir / "audit.json"

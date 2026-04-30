@@ -111,7 +111,7 @@ def _goto_wos_url(page, url: str, timeout_ms: int) -> None:
     try:
         page.goto(url, wait_until="networkidle", timeout=timeout_ms)
     except Exception as exc:
-        if not _is_ignorable_navigation_abort(exc):
+        if not _is_ignorable_navigation_issue(exc):
             raise
         try:
             page.wait_for_load_state("domcontentloaded", timeout=min(timeout_ms, 10000))
@@ -120,9 +120,14 @@ def _goto_wos_url(page, url: str, timeout_ms: int) -> None:
         _wait_briefly(page)
 
 
-def _is_ignorable_navigation_abort(exc: Exception) -> bool:
+def _is_ignorable_navigation_issue(exc: Exception) -> bool:
     message = str(exc)
-    return "net::ERR_ABORTED" in message or "frame was detached" in message
+    return (
+        "net::ERR_ABORTED" in message
+        or "frame was detached" in message
+        or "Timeout" in message
+        or "TimeoutError" in message
+    )
 
 
 def _prepare_playwright_runtime() -> None:
@@ -237,7 +242,10 @@ def _collect_wos_records_across_pages(
             break
         if not _go_to_next_results_page(page, timeout_ms=timeout_ms):
             break
-        _wait_for_wos_records(page, timeout_ms=timeout_ms)
+        try:
+            _wait_for_wos_records(page, timeout_ms=timeout_ms)
+        except RuntimeError:
+            pass
     return _deduplicate_by_title(papers)
 
 
@@ -381,8 +389,8 @@ def _wait_briefly(page) -> None:
 def _collect_wos_records_from_current_page(
     page,
     source_email_id: str | None,
-    max_scrolls: int = 80,
-    settle_ms: int = 500,
+    max_scrolls: int = 180,
+    settle_ms: int = 350,
 ) -> list[FetchedPaper]:
     papers: list[FetchedPaper] = []
     last_keys: set[str] = set()
@@ -407,29 +415,40 @@ def _collect_wos_records_from_current_page(
 
 
 def _scroll_next_record_batch(page) -> bool:
+    try:
+        page.mouse.wheel(0, 450)
+    except Exception:
+        pass
     script = """
     () => {
-      const candidates = [
-        document.scrollingElement,
-        document.documentElement,
-        document.body,
+      const elementVisible = (el) =>
+        el === document.scrollingElement || el === document.documentElement || el === document.body ||
+        !!(el.offsetWidth || el.offsetHeight || el.getClientRects().length);
+      const candidates = Array.from(new Set([
         ...Array.from(document.querySelectorAll('*')).filter((el) => {
           const style = window.getComputedStyle(el);
           return el.scrollHeight > el.clientHeight + 20 &&
-            ['auto', 'scroll', 'overlay'].includes(style.overflowY);
-        })
-      ].filter(Boolean);
-      let moved = false;
+            ['auto', 'scroll', 'overlay'].includes(style.overflowY) &&
+            elementVisible(el);
+        }),
+        document.scrollingElement,
+        document.documentElement,
+        document.body
+      ].filter(Boolean))).sort((a, b) => {
+        const aRoom = Math.max(0, a.scrollHeight - a.clientHeight - a.scrollTop);
+        const bRoom = Math.max(0, b.scrollHeight - b.clientHeight - b.scrollTop);
+        return bRoom - aRoom;
+      });
       for (const el of candidates) {
+        if (el.scrollHeight <= el.clientHeight + 20) continue;
         const before = el.scrollTop;
-        const step = Math.max(Math.floor(el.clientHeight * 0.85), 500);
+        const step = Math.min(450, Math.max(Math.floor(el.clientHeight * 0.35), 180));
         el.scrollTop = Math.min(el.scrollTop + step, el.scrollHeight);
-        if (el.scrollTop !== before) moved = true;
+        if (el.scrollTop !== before) return true;
       }
       const beforeWindow = window.scrollY;
-      window.scrollBy(0, Math.max(Math.floor(window.innerHeight * 0.85), 500));
-      if (window.scrollY !== beforeWindow) moved = true;
-      return moved;
+      window.scrollBy(0, Math.min(450, Math.max(Math.floor(window.innerHeight * 0.35), 180)));
+      return window.scrollY !== beforeWindow;
     }
     """
     try:
@@ -451,9 +470,16 @@ def _record_link_count(page) -> int:
 
 
 def _go_to_next_results_page(page, timeout_ms: int) -> bool:
+    _scroll_to_pagination_area(page)
     selectors = [
+        "button[data-ta*='pagination'][data-ta*='next']:not([disabled])",
+        "a[data-ta*='pagination'][data-ta*='next']",
         "button[data-ta*='next']:not([disabled])",
         "a[data-ta*='next']",
+        "button[aria-label*='Go to next page']:not([disabled])",
+        "a[aria-label*='Go to next page']",
+        "button[aria-label*='Next page']:not([disabled])",
+        "a[aria-label*='Next page']",
         "button[class*='next']:not([disabled])",
         "a[class*='next']",
         "button[aria-label*='Next']:not([disabled])",
@@ -501,15 +527,41 @@ def _go_to_next_results_page(page, timeout_ms: int) -> bool:
     if _click_next_button_by_dom(page, timeout_ms=timeout_ms):
         _wait_after_navigation_or_update(page, current_url=current_url, timeout_ms=timeout_ms)
         return True
-    if _goto_next_summary_url(page, timeout_ms=timeout_ms):
+    if _goto_next_summary_url(page, current_url=current_url, timeout_ms=timeout_ms):
         _wait_after_navigation_or_update(page, current_url=current_url, timeout_ms=timeout_ms)
         return True
     return False
 
 
-def _goto_next_summary_url(page, timeout_ms: int) -> bool:
-    current_url = getattr(page, "url", "")
-    next_url = _next_summary_page_url(current_url)
+def _scroll_to_pagination_area(page) -> None:
+    script = """
+    () => {
+      const scrollables = [
+        document.scrollingElement,
+        document.documentElement,
+        document.body,
+        ...Array.from(document.querySelectorAll('*')).filter((el) => {
+          const style = window.getComputedStyle(el);
+          return el.scrollHeight > el.clientHeight + 20 &&
+            ['auto', 'scroll', 'overlay'].includes(style.overflowY);
+        })
+      ].filter(Boolean);
+      for (const el of scrollables) {
+        el.scrollTop = el.scrollHeight;
+      }
+      window.scrollTo(0, document.body.scrollHeight || document.documentElement.scrollHeight || 0);
+    }
+    """
+    try:
+        page.evaluate(script)
+        page.wait_for_timeout(500)
+    except Exception:
+        pass
+
+
+def _goto_next_summary_url(page, current_url: str | None = None, timeout_ms: int = 30000) -> bool:
+    current_url = current_url or getattr(page, "url", "")
+    next_url = _next_summary_page_url(current_url) or _next_summary_page_url_from_page(page)
     if not next_url:
         return False
     try:
@@ -517,6 +569,35 @@ def _goto_next_summary_url(page, timeout_ms: int) -> bool:
         return getattr(page, "url", "") != current_url
     except Exception:
         return False
+
+
+def _next_summary_page_url_from_page(page) -> str | None:
+    hrefs = _summary_hrefs_from_page(page)
+    numbered_hrefs = [
+        (_summary_page_number(href), href)
+        for href in hrefs
+        if "/wos/woscc/summary/" in urlparse(href).path
+    ]
+    next_page_hrefs = [(number, href) for number, href in numbered_hrefs if number and number > 1]
+    if next_page_hrefs:
+        return sorted(next_page_hrefs, key=lambda item: item[0])[0][1]
+    for _, href in numbered_hrefs:
+        next_url = _next_summary_page_url(href)
+        if next_url:
+            return next_url
+    return None
+
+
+def _summary_hrefs_from_page(page) -> list[str]:
+    script = """
+    () => Array.from(document.querySelectorAll('a[href*="/wos/woscc/summary/"]'))
+      .map((a) => a.href || a.getAttribute('href'))
+      .filter(Boolean)
+    """
+    try:
+        return list(page.evaluate(script) or [])
+    except Exception:
+        return []
 
 
 def _next_summary_page_url(url: str) -> str | None:
@@ -533,6 +614,14 @@ def _next_summary_page_url(url: str) -> str | None:
             return None
         path = f"{match.group(1).rstrip('/')}/2"
     return parsed._replace(path=path).geturl()
+
+
+def _summary_page_number(url: str) -> int | None:
+    parsed = urlparse(url)
+    match = re.search(r"/wos/woscc/summary/[^/]+/[^/?#]+/(\d+)(?:/)?$", parsed.path)
+    if not match:
+        return None
+    return int(match.group(1))
 
 
 def _click_next_button_by_dom(page, timeout_ms: int) -> bool:

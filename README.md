@@ -46,7 +46,16 @@ python main.py fetch-papers --no-web --max 50
 ```bash
 python main.py analyze --source fetch --skip-llm
 python main.py analyze --source fetch --top-k 5
+python main.py analyze --source fetch --top-k 5 --download-full-text --skip-llm
+python main.py analyze --source fetch --top-k 5 --download-full-text --manual-pdf-dir data/manual_pdfs
 ```
+
+说明：
+
+- `--download-full-text` 会对达到阈值且进入 top-k 的论文尝试合法全文获取。
+- 在线全文来源包括出版商 PDF 直链、OpenAlex、Unpaywall、Semantic Scholar 和 arXiv。
+- 付费或订阅文献不会绕过付费墙；可将已合法获取的 PDF 放入 `--manual-pdf-dir` 指定目录，系统会按 DOI/标题匹配后继续全文解析。
+- `--full-text-timeout` 控制单次全文查找/下载超时，默认 10 秒。
 
 启动 Streamlit：
 

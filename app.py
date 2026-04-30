@@ -3,6 +3,7 @@ import os
 from pathlib import Path
 import time
 import json
+from collections import Counter
 
 import streamlit as st
 
@@ -118,6 +119,7 @@ def _render_weekly_tab(params: dict) -> None:
         )
         download_only = st.checkbox("只验证抓取和全文下载，不调用 LLM", value=False, help="用于调试候选抓取和 PDF 下载。开启后不需要填写 API Key，也不会调用模型。")
         unpaywall_email = st.text_input("Unpaywall 查询邮箱", value=email_address, help="用于查询开放获取全文，可填常用邮箱。")
+        manual_pdf_dir = st.text_input("手动 PDF 兜底目录（可选）", value="", help="把付费/订阅文献 PDF 放入该目录，系统会按 DOI/标题匹配后用于全文解析。")
         push_to_feishu = st.checkbox("生成后推送到飞书", value=False)
         feishu_webhook = ""
         feishu_secret = ""
@@ -198,6 +200,7 @@ def _render_weekly_tab(params: dict) -> None:
                     download_full_text=download_full_text,
                     unpaywall_email=unpaywall_email or email_address,
                     full_text_timeout=int(full_text_timeout),
+                    manual_pdf_dir=manual_pdf_dir or None,
                     progress_callback=report_progress,
                 )
             if push_to_feishu:
@@ -270,6 +273,7 @@ def _render_batch_tab(params: dict) -> None:
         key="batch_full_text_timeout",
     )
     unpaywall_email = st.text_input("Unpaywall 查询邮箱（可选）")
+    manual_pdf_dir = st.text_input("手动 PDF 兜底目录（可选）", value="")
     push_to_feishu = st.checkbox("生成后推送到飞书", value=False)
     feishu_webhook = ""
     feishu_secret = ""
@@ -315,12 +319,14 @@ def _render_batch_tab(params: dict) -> None:
                     download_full_text=download_full_text,
                     unpaywall_email=unpaywall_email or None,
                     full_text_timeout=int(full_text_timeout),
+                    manual_pdf_dir=manual_pdf_dir or None,
                 )
             except Exception as exc:
                 st.error(f"批量分析失败：{exc}")
                 return
 
         st.success(f"批量分析完成：{output_dir}")
+        _show_analysis_summary(output_dir)
         if push_to_feishu:
             try:
                 weekly_report_path = output_dir / "weekly_report.md"
@@ -356,6 +362,9 @@ def _show_result(output_dir: Path) -> None:
     weekly_report_path = output_dir / "weekly_report.md"
     report_path = output_dir / "report.md"
     results_path = output_dir / "results.json"
+
+    st.subheader("分析摘要")
+    _show_analysis_summary(output_dir)
 
     col1, col2 = st.columns([2, 1])
     with col1:
@@ -393,6 +402,56 @@ def _show_result(output_dir: Path) -> None:
             )
 
 
+def _show_analysis_summary(output_dir: Path) -> None:
+    summary = _analysis_summary(output_dir / "results.json")
+    if not summary:
+        st.info("未找到可统计的分析结果。")
+        return
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric("分析论文", summary["total"])
+    col2.metric("LLM 完成", summary["completed"])
+    col3.metric("全文成功", summary["fulltext_downloaded"])
+    col4.metric("全文失败", summary["fulltext_failed"])
+    if summary["stage_counts"]:
+        st.caption("阶段状态分布")
+        st.dataframe(summary["stage_counts"], hide_index=True, use_container_width=True)
+    if summary["top_reasons"]:
+        st.caption("主要跳过/失败原因")
+        st.dataframe(summary["top_reasons"], hide_index=True, use_container_width=True)
+
+
+def _analysis_summary(results_path: Path) -> dict | None:
+    if not results_path.exists():
+        return None
+    try:
+        papers = json.loads(results_path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    if not isinstance(papers, list):
+        return None
+    stage_counter = Counter(str(item.get("stage_status") or "unknown") for item in papers if isinstance(item, dict))
+    reason_counter = Counter(
+        str(item.get("skipped_reason"))
+        for item in papers
+        if isinstance(item, dict) and item.get("skipped_reason")
+    )
+    fulltext_counter = Counter(str(item.get("full_text_status") or "") for item in papers if isinstance(item, dict))
+    return {
+        "total": len(papers),
+        "completed": stage_counter.get("completed", 0),
+        "fulltext_downloaded": fulltext_counter.get("downloaded", 0),
+        "fulltext_failed": fulltext_counter.get("failed", 0),
+        "stage_counts": [
+            {"阶段": status, "数量": count}
+            for status, count in stage_counter.most_common()
+        ],
+        "top_reasons": [
+            {"原因": reason, "数量": count}
+            for reason, count in reason_counter.most_common(5)
+        ],
+    }
+
+
 def _show_fetch_audit(audit_path: Path) -> None:
     if not audit_path.exists():
         st.warning("未找到抓取审计文件。")
@@ -404,6 +463,7 @@ def _show_fetch_audit(audit_path: Path) -> None:
         return
 
     st.subheader("抓取审计")
+    _show_fetch_audit_summary(audit)
     st.json(audit)
     if audit.get("matched_wos_email_count", 0) == 0:
         st.info("没有在扫描窗口内识别到 WoS/Clarivate 邮件。可以增大“最多检查邮件数”，或确认 WoS Alert 邮件是否在收件箱。")
@@ -411,6 +471,33 @@ def _show_fetch_audit(audit_path: Path) -> None:
         st.info("识别到了 WoS 邮件，但都被 seen_emails.json 过滤。请勾选“重新扫描已处理邮件”。")
     elif audit.get("parsed_paper_count", 0) == 0:
         st.info("已抓取 WoS 邮件 HTML，但没有解析出论文记录。可能是 WoS 邮件模板变化，需要更新解析器。")
+
+
+def _show_fetch_audit_summary(audit: dict) -> None:
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric("解析论文", audit.get("parsed_paper_count", 0))
+    col2.metric("去重后", audit.get("unique_paper_count", 0))
+    col3.metric("元数据补全", audit.get("metadata_enriched_count", 0))
+    col4.metric("总耗时", f"{audit.get('duration_seconds', 0):.1f}s")
+    timings = _fetch_timing_summary(audit)
+    if timings:
+        st.caption("抓取阶段耗时")
+        st.dataframe(timings, hide_index=True, use_container_width=True)
+
+
+def _fetch_timing_summary(audit: dict) -> list[dict]:
+    labels = {
+        "email_scan_seconds": "邮箱扫描",
+        "email_parse_seconds": "邮件解析",
+        "requests_expand_seconds": "WoS requests 扩展",
+        "browser_expand_seconds": "WoS 浏览器扩展",
+        "metadata_enrich_seconds": "元数据补全",
+    }
+    return [
+        {"阶段": label, "耗时秒": audit.get(key, 0)}
+        for key, label in labels.items()
+        if audit.get(key, 0)
+    ]
 
 
 @contextmanager

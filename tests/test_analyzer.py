@@ -38,3 +38,17 @@ def test_parse_json_object_multiple_json_blocks_picks_first():
     raw = '{"first": 1} some text {"second": 2}'
     result = _parse_json_object(raw)
     assert result["first"] == 1
+
+
+def test_parse_json_object_empty_response_raises():
+    import pytest
+
+    with pytest.raises(ValueError, match="LLM 未返回有效 JSON"):
+        _parse_json_object("")
+
+
+def test_parse_json_object_invalid_json_block_raises():
+    import pytest
+
+    with pytest.raises(ValueError, match="LLM 未返回有效 JSON"):
+        _parse_json_object("```json\n{not valid}\n```")

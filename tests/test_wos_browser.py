@@ -1,10 +1,12 @@
 import pytest
 
 from paper_analyzer.ingestion.wos_browser import (
+    _collect_wos_records_across_pages,
     _collect_wos_records_from_current_page,
     _click_next_page_number_by_dom,
     _goto_wos_url,
     _next_summary_page_url,
+    _next_summary_page_url_from_page,
     _wait_for_wos_records,
     _wait_for_wos_records_or_login,
     parse_wos_result_page,
@@ -177,6 +179,27 @@ def test_goto_wos_url_ignores_gateway_navigation_abort():
     assert page.waited is True
 
 
+def test_goto_wos_url_ignores_networkidle_timeout():
+    class FakePage:
+        def __init__(self):
+            self.waited = False
+
+        def goto(self, url, wait_until, timeout):
+            raise RuntimeError("Page.goto: Timeout 30000ms exceeded.")
+
+        def wait_for_load_state(self, state, timeout):
+            self.waited = True
+
+        def wait_for_timeout(self, timeout):
+            pass
+
+    page = FakePage()
+
+    _goto_wos_url(page, "https://www.webofscience.com/api/gateway", timeout_ms=1000)
+
+    assert page.waited is True
+
+
 def test_collect_wos_records_accumulates_virtualized_scroll_results():
     class FakePage:
         def __init__(self):
@@ -217,6 +240,58 @@ def test_collect_wos_records_accumulates_virtualized_scroll_results():
     ]
 
 
+def test_collect_wos_records_still_parses_next_page_when_next_page_wait_fails(monkeypatch):
+    import paper_analyzer.ingestion.wos_browser as wos_browser
+
+    class FakePage:
+        def __init__(self):
+            self.page_index = 0
+
+        def content(self):
+            if self.page_index == 0:
+                return """
+                <html><body>
+                  <a href="/wos/woscc/full-record/WOS:001">First page physics-informed paper title</a>
+                </body></html>
+                """
+            return """
+            <html><body>
+              <a href="/wos/woscc/full-record/WOS:002">Second page physics-informed paper title</a>
+            </body></html>
+            """
+
+        def evaluate(self, script):
+            return False
+
+        def wait_for_timeout(self, timeout):
+            pass
+
+    page = FakePage()
+
+    def go_next(fake_page, timeout_ms):
+        fake_page.page_index += 1
+        return fake_page.page_index == 1
+
+    monkeypatch.setattr(wos_browser, "_go_to_next_results_page", go_next)
+    monkeypatch.setattr(
+        wos_browser,
+        "_wait_for_wos_records",
+        lambda fake_page, timeout_ms: (_ for _ in ()).throw(RuntimeError("generic error")),
+    )
+
+    papers = _collect_wos_records_across_pages(
+        page,
+        source_email_id="<id@example.com>",
+        timeout_ms=1000,
+        max_pages=5,
+    )
+
+    assert [paper.title for paper in papers] == [
+        "First page physics-informed paper title",
+        "Second page physics-informed paper title",
+    ]
+
+
 def test_next_summary_page_url_increments_existing_page_number():
     url = "https://webofscience.clarivate.cn/wos/woscc/summary/abc-123/relevance/1"
 
@@ -227,6 +302,32 @@ def test_next_summary_page_url_appends_page_number_when_missing():
     url = "https://webofscience.clarivate.cn/wos/woscc/summary/abc-123/relevance"
 
     assert _next_summary_page_url(url) == "https://webofscience.clarivate.cn/wos/woscc/summary/abc-123/relevance/2"
+
+
+def test_next_summary_page_url_from_page_uses_page_two_href_when_current_url_is_gateway():
+    class FakePage:
+        def evaluate(self, script):
+            assert "/wos/woscc/summary/" in script
+            return [
+                "https://www.webofscience.com/wos/woscc/summary/abc-123/relevance/2",
+                "https://www.webofscience.com/wos/woscc/summary/abc-123/relevance/3",
+            ]
+
+    assert (
+        _next_summary_page_url_from_page(FakePage())
+        == "https://www.webofscience.com/wos/woscc/summary/abc-123/relevance/2"
+    )
+
+
+def test_next_summary_page_url_from_page_derives_page_two_from_page_one_href():
+    class FakePage:
+        def evaluate(self, script):
+            return ["https://www.webofscience.com/wos/woscc/summary/abc-123/relevance/1"]
+
+    assert (
+        _next_summary_page_url_from_page(FakePage())
+        == "https://www.webofscience.com/wos/woscc/summary/abc-123/relevance/2"
+    )
 
 
 def test_click_next_page_number_by_dom_uses_page_script_result():

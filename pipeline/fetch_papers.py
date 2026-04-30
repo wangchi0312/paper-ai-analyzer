@@ -4,11 +4,13 @@ from datetime import datetime
 import json
 import re
 from pathlib import Path
+import time
 from typing import Callable
 from urllib.parse import urlparse
 
 from paper_analyzer.data.schema import FetchAudit, FetchedPaper
 from paper_analyzer.ingestion.email_reader import fetch_wos_emails_with_stats
+from paper_analyzer.ingestion.metadata_enricher import enrich_paper_metadata
 from paper_analyzer.ingestion.wos_browser import WosBrowserSession
 from paper_analyzer.ingestion.wos_parser import enrich_from_web, extract_alert_summary_links, parse_wos_email
 from paper_analyzer.utils.logger import get_logger
@@ -33,16 +35,19 @@ def fetch_papers(
     progress_callback: Callable[[str], None] | None = None,
 ) -> list[FetchedPaper]:
     _emit_progress(progress_callback, "开始连接邮箱并扫描 WoS Citation Alert 邮件")
+    started_at = time.perf_counter()
+    email_scan_started_at = time.perf_counter()
     emails, email_stats = fetch_wos_emails_with_stats(
         since_date=since_date,
         max_emails=max_emails,
         ignore_seen=ignore_seen,
     )
+    email_scan_seconds = _elapsed(email_scan_started_at)
     _emit_progress(
         progress_callback,
         f"已找到 {len(emails)} 封 Citation Alert；收件箱 {email_stats['inbox_email_count']} 封，检查 {email_stats['checked_email_count']} 封",
     )
-    papers: list[FetchedPaper] = []
+    raw_papers: list[FetchedPaper] = []
     alert_summary_link_count = 0
     expanded_paper_count = 0
     browser_expanded_paper_count = 0
@@ -50,6 +55,11 @@ def fetch_papers(
     browser_duplicate_paper_count = 0
     browser_expand_error_count = 0
     browser_expand_last_error: str | None = None
+    metadata_enriched_count = 0
+    email_parse_seconds = 0.0
+    requests_expand_seconds = 0.0
+    browser_expand_seconds = 0.0
+    metadata_enrich_seconds = 0.0
     email_details: list[dict] = []
 
     browser_context: WosBrowserSession | None = None
@@ -58,11 +68,13 @@ def fetch_papers(
         for email_index, (message_id, subject, html) in enumerate(emails, start=1):
             clean_subject = " ".join(subject.split())
             _emit_progress(progress_callback, f"解析第 {email_index}/{len(emails)} 封邮件：{clean_subject}")
+            parse_started_at = time.perf_counter()
             parsed = parse_wos_email(html, source_email_id=message_id)
+            email_parse_seconds += _elapsed(parse_started_at)
             _emit_progress(progress_callback, f"邮件正文解析出 {len(parsed)} 篇论文")
             email_detail = _new_email_detail(message_id, subject, len(parsed))
             for paper in parsed:
-                papers.append(paper if no_web else _enrich_or_keep(paper))
+                raw_papers.append(paper)
             if expand_alert_pages:
                 summary_links = extract_alert_summary_links(html)
                 alert_summary_link_count += len(summary_links)
@@ -71,12 +83,15 @@ def fetch_papers(
                     _emit_progress(progress_callback, f"发现 {len(summary_links)} 个 WoS 完整结果页链接，开始扩展候选")
                 for link_index, link in enumerate(summary_links, start=1):
                     link_detail = _new_link_detail(link_index, link)
+                    requests_expand_started_at = time.perf_counter()
                     expanded = _fetch_alert_summary_papers(link, source_email_id=message_id)
+                    requests_expand_seconds += _elapsed(requests_expand_started_at)
                     expanded_paper_count += len(expanded)
                     email_detail["requests_expanded_paper_count"] += len(expanded)
                     link_detail["requests_expanded_paper_count"] = len(expanded)
                     if use_browser and not expanded:
                         _emit_progress(progress_callback, f"浏览器扩展第 {link_index}/{len(summary_links)} 个 WoS 链接")
+                        browser_expand_started_at = time.perf_counter()
                         try:
                             if browser_session is None:
                                 _emit_progress(progress_callback, "启动 Playwright Chromium；本次抓取会复用同一个浏览器窗口")
@@ -98,8 +113,10 @@ def fetch_papers(
                             link_detail["browser_error"] = browser_expand_last_error
                             _emit_progress(progress_callback, f"浏览器扩展失败：{browser_expand_last_error}")
                             browser_expanded = []
+                        finally:
+                            browser_expand_seconds += _elapsed(browser_expand_started_at)
                         browser_expanded_paper_count += len(browser_expanded)
-                        new_unique, duplicate = _count_new_unique_papers(papers, browser_expanded)
+                        new_unique, duplicate = _count_new_unique_papers(raw_papers, browser_expanded)
                         browser_new_unique_paper_count += new_unique
                         browser_duplicate_paper_count += duplicate
                         email_detail["browser_expanded_paper_count"] += len(browser_expanded)
@@ -112,14 +129,19 @@ def fetch_papers(
                         _emit_progress(progress_callback, f"浏览器返回 {len(browser_expanded)} 篇，其中新增 {new_unique} 篇，重复 {duplicate} 篇")
                     email_detail["alert_links"].append(link_detail)
                     for paper in expanded:
-                        papers.append(paper if no_web else _enrich_or_keep(paper))
+                        raw_papers.append(paper)
             email_details.append(email_detail)
     finally:
         if browser_context is not None:
             browser_context.__exit__(None, None, None)
 
-    parsed_paper_count = len(papers)
-    papers = deduplicate_papers(papers)
+    parsed_paper_count = len(raw_papers)
+    papers = deduplicate_papers(raw_papers)
+    if not no_web:
+        metadata_enrich_started_at = time.perf_counter()
+        papers, metadata_enriched_count, enriched_count_by_email = _enrich_unique_papers(papers)
+        metadata_enrich_seconds = _elapsed(metadata_enrich_started_at)
+        _assign_metadata_enrichment_counts(email_details, enriched_count_by_email)
     _emit_progress(progress_callback, f"抓取完成：原始 {parsed_paper_count} 条，去重后 {len(papers)} 篇")
     save_fetched_papers(papers, output_path)
     save_fetch_audit(
@@ -147,6 +169,13 @@ def fetch_papers(
             browser_duplicate_paper_count=browser_duplicate_paper_count,
             browser_expand_error_count=browser_expand_error_count,
             browser_expand_last_error=browser_expand_last_error,
+            metadata_enriched_count=metadata_enriched_count,
+            duration_seconds=_elapsed(started_at),
+            email_scan_seconds=email_scan_seconds,
+            email_parse_seconds=round(email_parse_seconds, 3),
+            requests_expand_seconds=round(requests_expand_seconds, 3),
+            browser_expand_seconds=round(browser_expand_seconds, 3),
+            metadata_enrich_seconds=round(metadata_enrich_seconds, 3),
             email_details=email_details,
         ),
         audit_output_path,
@@ -167,6 +196,7 @@ def _new_email_detail(message_id: str, subject: str, parsed_count: int) -> dict:
         "browser_duplicate_paper_count": 0,
         "browser_expand_error_count": 0,
         "browser_expand_last_error": None,
+        "metadata_enriched_count": 0,
         "alert_links": [],
     }
 
@@ -188,6 +218,10 @@ def _emit_progress(progress_callback: Callable[[str], None] | None, message: str
         progress_callback(message)
 
 
+def _elapsed(started_at: float) -> float:
+    return round(time.perf_counter() - started_at, 3)
+
+
 def deduplicate_papers(papers: list[FetchedPaper]) -> list[FetchedPaper]:
     seen: set[str] = set()
     unique: list[FetchedPaper] = []
@@ -202,12 +236,47 @@ def deduplicate_papers(papers: list[FetchedPaper]) -> list[FetchedPaper]:
     return unique
 
 
+def _enrich_unique_papers(papers: list[FetchedPaper]) -> tuple[list[FetchedPaper], int, dict[str, int]]:
+    cache: dict[str, FetchedPaper] = {}
+    enriched_papers: list[FetchedPaper] = []
+    metadata_enriched_count = 0
+    enriched_count_by_email: dict[str, int] = {}
+    for paper in papers:
+        before_signature = _metadata_signature(paper)
+        key = _paper_key(paper)
+        if key in cache:
+            enriched = cache[key]
+        else:
+            enriched = _enrich_or_keep(paper)
+            cache[key] = enriched
+        if _metadata_signature(enriched) != before_signature:
+            metadata_enriched_count += 1
+            if enriched.source_email_id:
+                enriched_count_by_email[enriched.source_email_id] = enriched_count_by_email.get(enriched.source_email_id, 0) + 1
+        enriched_papers.append(enriched)
+    return enriched_papers, metadata_enriched_count, enriched_count_by_email
+
+
+def _assign_metadata_enrichment_counts(email_details: list[dict], enriched_count_by_email: dict[str, int]) -> None:
+    for detail in email_details:
+        detail["metadata_enriched_count"] = enriched_count_by_email.get(detail["message_id"], 0)
+
+
 def _enrich_or_keep(paper: FetchedPaper) -> FetchedPaper:
+    enriched = paper
     try:
-        return enrich_from_web(paper)
+        enriched = enrich_from_web(enriched)
     except Exception as exc:
         logger.warning("网页补全失败，保留邮件内容：%s (%s)", paper.title, exc)
-        return paper
+    try:
+        enriched = enrich_paper_metadata(enriched)
+    except Exception as exc:
+        logger.warning("公开元数据补全失败，保留现有内容：%s (%s)", paper.title, exc)
+    return enriched
+
+
+def _metadata_signature(paper: FetchedPaper) -> tuple[str | None, str | None, str | None, str]:
+    return (paper.doi, paper.authors, paper.venue, paper.abstract)
 
 
 def _format_exception(exc: Exception) -> str:
