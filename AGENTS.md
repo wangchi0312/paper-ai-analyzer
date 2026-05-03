@@ -18,6 +18,24 @@
 - Windows 下如果 Codex 内部 PowerShell 宿主异常，默认不要依赖 PowerShell 命令包装，优先直接调用 `D:\software\anaconda\envs\paper-ai\python.exe`。
 - 运行测试、CLI、Streamlit 时优先使用 Conda 环境 Python 绝对路径，而不是 `conda run`。
 
+## Git 版本控制规则
+
+- **开发阶段自动提交**：当前高频率大规模开发期间，每次代码修改后自动执行 git 操作，确保可以随时回滚到任意版本。
+- **提交前必须更新文档**：修改代码前先更新 `.claude/spec.md`、`.claude/worklog.md` 等相关文档。
+- **自动推送到远程**：每次提交后自动 `git push`，防止本地丢失。
+- **提交信息规范**：使用清晰的中文提交信息，说明修改内容和原因。
+- **提交范围**：每次只提交与本次需求直接相关的文件，避免混合无关修改。
+- **测试验证**：提交前运行相关测试，确保修改不破坏现有功能。
+
+**回滚操作**（如需要）：
+```bash
+# 查看历史
+git log --oneline -10
+
+# 回滚到指定版本
+git reset --hard <commit-hash>
+```
+
 ## 当前 V1 方向
 
 - 先实现 CLI 核心流程。
