@@ -1,9 +1,10 @@
 # Agent Handoff
 
-更新时间：2026-04-29
+更新时间：2026-05-03
 
 ## 1) 当前目标
-稳定推进 V2（邮件抓取与批量分析）同时保持 V1/V1.1 可用。当前已完成 V2 最小 CLI 闭环、top-k 成本控制、抓取审计、网页补全失败回退、WoS AlertSummary 链接扩展、可选 Playwright 浏览器解析模式、Streamlit 邮件批量分析入口、文献周报输出、飞书 webhook 推送基础能力、Streamlit 一键周报入口和 top-k 全文获取基础层。下一步由用户在校园网/学校 VPN 环境下手动验证 WoS 浏览器扩展与全文下载命中率；Agent 在用户测试后读取本地结果文件反馈问题。
+稳定推进 V2（邮件抓取与批量分析）同时保持 V1/V1.1 可用。当前已完成：V2 最小 CLI 闭环、top-k 成本控制、抓取审计、WoS AlertSummary 链接扩展、Playwright 浏览器解析、Streamlit 一键周报、全文获取基础层、智能邮件扫描（遇已见 Alert 停止）、测试阶段支持（--ignore-seen）、top-k 全文失败顺延、headless 浏览器默认、无新 Alert 友好诊断。下一步由用户在真实邮箱环境验证正式版行为。
+稳定推进 V2（邮件抓取与批量分析）同时保持 V1/V1.1 可用。当前已完成：V2 最小 CLI 闭环、top-k 成本控制、抓取审计、WoS AlertSummary 链接扩展、Playwright 浏览器解析、Streamlit 一键周报、全文获取基础层、智能邮件扫描（遇已见 Alert 停止）、top-k 全文失败顺延、headless 浏览器默认、无新 Alert 友好诊断。下一步由用户在真实邮箱环境验证。
 
 ## 2) 已完成（可验证）
 - V1 CLI 主流程已实现：构建兴趣向量、单篇分析、JSON/Markdown 输出。

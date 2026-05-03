@@ -71,7 +71,7 @@ def fetch_wos_emails(
 
     Returns list of (message_id, subject, html_body) tuples.
     """
-    emails, _stats = fetch_wos_emails_with_stats(
+    emails, _stats, _hit_seen = fetch_wos_emails_with_stats(
         since_date=since_date,
         max_emails=max_emails,
         config=config,
@@ -87,7 +87,7 @@ def fetch_wos_emails_with_stats(
     config: EmailConfig | None = None,
     seen_emails_path: str = "data/processed/seen_emails.json",
     ignore_seen: bool = False,
-) -> tuple[list[tuple[str, str, str]], dict[str, int]]:
+) -> tuple[list[tuple[str, str, str]], dict[str, int], bool]:
     if config is None:
         config = load_email_config()
 
@@ -118,35 +118,40 @@ def fetch_wos_emails_with_stats(
         stats["inbox_email_count"] = len(all_ids)
         logger.info("收件箱共 %d 封邮件", len(all_ids))
 
-        # 先用 HEADER 粗筛
-        wos_ids = []
-        # WoS Alert 不一定密集出现在最近邮件里，默认扩大扫描窗口。
-        scan_limit = max(max_emails * 20, max_emails)
-        check_ids = all_ids[-min(len(all_ids), scan_limit, 2000) :]
+        # 从最新邮件开始往前扫描，收集未处理的 Citation Alert。
+        # 正式版：遇到已处理的邮件立即停止，不再往前扫描。
+        # 测试阶段：使用 --ignore-seen 完全忽略 seen 机制，返回最新 N 封。
+        wos_ids: list[bytes] = []
+        scan_limit = min(len(all_ids), 2000)
+        check_ids = all_ids[-scan_limit:]
         stats["checked_email_count"] = len(check_ids)
+        hit_seen_alert = False
 
-        for mid in check_ids:
+        for mid in reversed(check_ids):
             status, msg_data = imap.fetch(mid, "(BODY[HEADER.FIELDS (SUBJECT FROM MESSAGE-ID)])")
             if status != "OK":
                 continue
             header_text = msg_data[0][1].decode("utf-8", errors="replace").lower()
-            if "web of science" in header_text or "clarivate" in header_text:
-                stats["matched_wos_email_count"] += 1
-                # 提取 Message-ID 检查是否已处理
-                msg_id_raw = msg_data[0][1].decode("utf-8", errors="replace")
-                msg_id_match = _extract_message_id(msg_id_raw)
-                if not ignore_seen and msg_id_match and msg_id_match in seen_ids:
-                    stats["skipped_seen_email_count"] += 1
-                    logger.debug("跳过已处理邮件：%s", msg_id_match)
-                    continue
-                wos_ids.append(mid)
+            if "web of science" not in header_text and "clarivate" not in header_text:
+                continue
+            stats["matched_wos_email_count"] += 1
+            msg_id_raw = msg_data[0][1].decode("utf-8", errors="replace")
+            msg_id_match = _extract_message_id(msg_id_raw)
+            if not ignore_seen and msg_id_match and msg_id_match in seen_ids:
+                stats["skipped_seen_email_count"] += 1
+                hit_seen_alert = True
+                break  # 正式版：遇到已处理邮件立即停止
+            wos_ids.append(mid)
+            # 收集足够多候选后再退出 header 扫描（非 Alert 系统通知可能占一定比例）
+            if len(wos_ids) >= max(max_emails * 20, 200):
+                break
 
-        logger.info("找到 %d 封未处理的 WoS 邮件", len(wos_ids))
+        logger.info("找到 %d 封未处理的 WoS 邮件（跳过 %d 封已处理）", len(wos_ids), stats["skipped_seen_email_count"])
 
         results = []
         new_seen_ids = set()
 
-        for mid in reversed(wos_ids):
+        for mid in wos_ids:
             if len(results) >= max_emails:
                 break
             status, msg_data = imap.fetch(mid, "(RFC822)")
@@ -180,7 +185,7 @@ def fetch_wos_emails_with_stats(
             _save_seen_message_ids(seen_path, seen_ids)
             logger.info("已保存 %d 个已处理邮件 ID", len(new_seen_ids))
 
-        return results, stats
+        return results, stats, hit_seen_alert
 
     except Exception as exc:
         logger.error("IMAP 操作失败：%s", exc)

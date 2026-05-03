@@ -4,6 +4,72 @@
 
 ---
 
+## 2026-05-03
+
+### 补充：邮件扫描策略调整（测试阶段 vs 正式版）
+
+### 做了什么
+- 明确邮件扫描策略：测试阶段使用 `--ignore-seen` 完全忽略 seen 机制，正式版遇已见 Alert 立即停止。
+- 修改 `email_reader.py` 扫描逻辑：遇到已处理邮件时 `break` 而非 `continue`，确保正式版不会继续往前扫描。
+- 保持测试阶段灵活性：用户可传 `--ignore-seen` 或前端勾选"重新扫描已处理邮件"来反复测试同一批邮件。
+- 无新邮件时的友好提示已通过 `_emit_zero_result_diagnostics()` 实现，包含"请等待 WoS 发送下一轮 Citation Alert"的建议。
+
+### 为什么
+- 当前是测试阶段，邮箱已被多次扫描，seen 机制会阻止反复测试。
+- 正式版应更智能：遇到已处理邮件立即停止，避免无意义的扫描，并明确告知用户无新邮件。
+- 用户明确需求：追踪最新文献，只需最新的 2 封邮件（通过 `--max 2` 配置），历史邮件已看过不需要再分析。
+
+### 影响文件
+- paper_analyzer/ingestion/email_reader.py
+
+### 验证结果
+- 相关测试通过：`test_email_reader.py: 11 passed`，`test_fetch_papers.py: 14 passed`。
+
+### 下一步
+- 提交本次修改到 git。
+- 用户在真实邮箱环境验证正式版行为（无 `--ignore-seen` 时遇已见 Alert 停止）。
+
+---
+
+## 2026-05-03
+
+### 补充：智能邮件扫描遇已见 Alert 停止 + top-k 全文失败顺延 + headless 默认 + 无新 Alert 诊断
+
+### 做了什么
+- 邮件扫描改为从最新到最旧扫描，遇到已处理过的 Citation Alert 立即停止，不再无休止扩大扫描范围。
+- `fetch_wos_emails_with_stats()` 返回值从 2 元组改为 3 元组 `(results, stats, hit_seen_alert)`，供上层判断是否因遇到已见 Alert 而提前停止。
+- 无新 Alert 时通过 `_emit_zero_result_diagnostics()` 输出友好诊断，包含逐封邮件明细和可操作建议。
+- `analyze_papers()` 的 top-k 控制从静态 `llm_allowed_indexes` 集合改为动态 `llm_remaining` 计数器：全文下载失败时名额不消耗，下一个达到阈值的论文自动递补。
+- Playwright 浏览器模式默认 `headless=True`。
+- 修复 `_enrich_unique_papers` 中因 in-place mutation 导致的 KeyError 和 `metadata_enriched_count` 始终为 0 的 bug：在并发 enrich 前记录 `paper_keys[i]` 和 `paper_snapshots[i]`，reconcile 时使用原始 key。
+- 修复 `test_fetch_papers_expands_alert_summary_pages` 函数头被误删的问题。
+- 修正所有 `fetch_wos_emails_with_stats` mock 返回值为正确的 3 元组格式。
+
+### 为什么
+- 用户明确反馈"应扫描到最近一封已处理 Alert 时停止，而不是无休止扩大搜索范围"，这才是智能文献追踪的正确行为。
+- top-k 静态选取导致全文下载失败时名额浪费，用户上次运行 top-k=1 时第 1 名下载超时 → 0 篇深读。
+- 浏览器弹窗干扰用户正常使用。
+- `FetchedPaper.__eq__` 按字段值比较，in-place mutation 后 `_paper_key` 变化导致 reconcile 阶段 KeyError。
+
+### 影响文件
+- paper_analyzer/ingestion/email_reader.py
+- pipeline/fetch_papers.py
+- pipeline/analyze_papers.py
+- paper_analyzer/ingestion/wos_browser.py
+- tests/test_fetch_papers.py
+- tests/test_analyze_fetched_papers.py
+- .claude/spec.md
+
+### 验证结果
+- 全量测试：`118 passed`。
+- 语法检查通过。
+
+### 下一步
+- 用户在真实邮箱环境运行，验证"遇已见 Alert 停止"和"无新 Alert 友好诊断"的实际效果。
+- 后续版本可考虑用 IMAP `SINCE` 日期搜索进一步缩小扫描范围。
+
+---
+
 ## 2026-04-29
 
 ### 补充：WoS 数字页码分页
