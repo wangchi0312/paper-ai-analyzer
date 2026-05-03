@@ -8,9 +8,9 @@ from collections import Counter
 import streamlit as st
 
 from pipeline.analyze_papers import analyze_papers, analyze_pdf
-from pipeline.fetch_papers import fetch_papers, load_fetched_papers
+from pipeline.fetch_papers import fetch_papers, load_fetched_papers, load_paper_library, reset_paper_library
 from paper_analyzer.notification.feishu import send_feishu_text
-from paper_analyzer.utils.config import load_research_topic
+from paper_analyzer.utils.config import EMAIL_PROVIDER_CONFIGS, load_research_topic
 
 
 INCOMING_DIR = Path("data/incoming_pdfs")
@@ -59,13 +59,15 @@ def main() -> None:
     if not Path(profile_path).exists():
         st.warning("尚未找到兴趣向量，请先运行 build_profile。")
 
-    weekly_tab, pdf_tab, batch_tab = st.tabs(["一键周报", "单篇 PDF", "邮件批量"])
+    weekly_tab, pdf_tab, batch_tab, library_tab = st.tabs(["一键周报", "单篇 PDF", "邮件批量", "历史论文库"])
     with weekly_tab:
         _render_weekly_tab(params)
     with pdf_tab:
         _render_pdf_tab(params)
     with batch_tab:
         _render_batch_tab(params)
+    with library_tab:
+        _render_library_tab()
 
 
 def _render_weekly_tab(params: dict) -> None:
@@ -79,7 +81,15 @@ def _render_weekly_tab(params: dict) -> None:
         api_key = st.text_input("API Key", type="password")
 
         st.markdown("**邮箱配置**")
-        email_provider = st.selectbox("邮箱运营商", ["QQ邮箱"], index=0)
+        provider_keys = list(EMAIL_PROVIDER_CONFIGS.keys())
+        email_provider = st.selectbox(
+            "邮箱运营商",
+            options=provider_keys,
+            format_func=lambda k: EMAIL_PROVIDER_CONFIGS[k]["label"],
+            index=0,
+        )
+        auth_help = EMAIL_PROVIDER_CONFIGS[email_provider]["auth_help"]
+        st.caption(f"💡 {auth_help}")
         email_address = st.text_input("邮箱地址")
         email_auth_code = st.text_input("邮箱授权码", type="password")
 
@@ -132,9 +142,6 @@ def _render_weekly_tab(params: dict) -> None:
     if not submitted:
         return
 
-    if email_provider != "QQ邮箱":
-        st.error("当前版本只支持 QQ 邮箱。")
-        return
     if not download_only and (not api_key or not model_name or not base_url):
         st.error("请填写完整的模型配置。")
         return
@@ -167,6 +174,7 @@ def _render_weekly_tab(params: dict) -> None:
                 email_address=email_address,
                 email_auth_code=email_auth_code,
                 research_topic=params["research_topic"],
+                email_provider=email_provider,
             ):
                 fetched = fetch_papers(
                     since_date=since_date or None,
@@ -258,7 +266,7 @@ def _render_pdf_tab(params: dict) -> None:
 
 
 def _render_batch_tab(params: dict) -> None:
-    fetched_path = st.text_input("抓取结果", value=str(DEFAULT_FETCHED))
+    fetched_path = st.text_input("抓取结果", value="data/processed/fetched_papers.json")
     top_k_enabled = st.checkbox("限制 LLM 分析篇数", value=True)
     top_k_value = st.number_input("Top K", min_value=1, max_value=100, value=5, step=1, disabled=not top_k_enabled)
     top_k = int(top_k_value) if top_k_enabled else None
@@ -509,6 +517,7 @@ def _temporary_runtime_env(
     email_address: str,
     email_auth_code: str,
     research_topic: str | None,
+    email_provider: str = "qq",
 ):
     prefix = PROVIDER_PREFIX[provider]
     updates = {
@@ -516,6 +525,9 @@ def _temporary_runtime_env(
         f"{prefix}_API_KEY": api_key,
         f"{prefix}_BASE_URL": base_url,
         f"{prefix}_MODEL": model_name,
+        "EMAIL_ADDRESS": email_address,
+        "EMAIL_AUTH_CODE": email_auth_code,
+        "EMAIL_PROVIDER": email_provider,
         "QQ_EMAIL": email_address,
         "QQ_EMAIL_AUTH_CODE": email_auth_code,
     }
@@ -532,6 +544,76 @@ def _temporary_runtime_env(
                 os.environ.pop(key, None)
             else:
                 os.environ[key] = value
+
+
+def _render_library_tab() -> None:
+    st.subheader("历史论文库")
+
+    try:
+        papers = load_paper_library()
+    except Exception as exc:
+        st.error(f"读取论文库失败：{exc}")
+        return
+
+    if not papers:
+        st.info("论文库尚未构建，请先运行一次抓取。")
+        return
+
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.metric("论文总数", len(papers))
+    with col2:
+        methods = set(p.fetch_method for p in papers if p.fetch_method)
+        st.metric("数据来源", len(methods))
+    with col3:
+        dates = [p.fetch_date for p in papers if p.fetch_date]
+        if dates:
+            st.metric("最早入库", min(dates))
+
+    col_date, col_search, col_export = st.columns(3)
+    with col_date:
+        since_date = st.text_input("过滤日期（YYYY-MM-DD）", key="library_since", placeholder="留空显示全部")
+    with col_search:
+        keyword = st.text_input("标题/DOI 关键词搜索", key="library_search")
+    with col_export:
+        if st.button("导出 CSV"):
+            import csv
+            import io
+            buf = io.StringIO()
+            writer = csv.writer(buf)
+            writer.writerow(["标题", "作者", "期刊", "DOI", "链接", "摘要", "fetch_date", "fetch_method"])
+            for p in papers:
+                writer.writerow([p.title, p.authors or "", p.venue or "", p.doi or "", p.link or "", p.abstract[:200], p.fetch_date or "", p.fetch_method])
+            st.download_button("下载 CSV", buf.getvalue(), "paper_library.csv", "text/csv")
+
+    filtered = papers
+    if since_date:
+        filtered = [p for p in filtered if p.fetch_date and p.fetch_date >= since_date]
+    if keyword:
+        kw = keyword.lower()
+        filtered = [
+            p for p in filtered
+            if kw in p.title.lower() or (p.doi and kw in p.doi.lower())
+        ]
+
+    st.caption(f"显示 {len(filtered)} / {len(papers)} 篇")
+
+    rows = [
+        {
+            "标题": p.title[:100],
+            "期刊": p.venue or "",
+            "DOI": p.doi or "",
+            "入库日期": p.fetch_date or "",
+            "来源": p.fetch_method or "",
+        }
+        for p in filtered[:200]
+    ]
+    if rows:
+        st.dataframe(rows, hide_index=True, use_container_width=True)
+
+    if st.button("清空论文库", type="secondary"):
+        reset_paper_library()
+        st.rerun()
 
 
 if __name__ == "__main__":

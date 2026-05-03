@@ -4,7 +4,6 @@
 .eml
 *.eml
 .codex
-=4.12,
 __pycache__/
 *.py[cod]
 .pytest_cache/
@@ -29,3 +28,6 @@ data/profile_pdfs/*
 # Local AI session settings
 .claude/settings.local.json
 .claude/final spec.md
+
+# Invalid filenames (command line artifacts)
+=*,
