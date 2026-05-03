@@ -17,13 +17,13 @@ CLARIVATE_PASSWORD_ENV = "CLARIVATE_PASSWORD"
 class WosBrowserSession:
     def __init__(
         self,
-        timeout_ms: int = 30000,
-        headless: bool = False,
+        timeout: int = 30,
+        headless: bool = True,
         max_pages: int = 20,
         browser_profile_dir: str | None = DEFAULT_BROWSER_PROFILE_DIR,
         manual_login_wait_seconds: int = 0,
     ) -> None:
-        self.timeout_ms = timeout_ms
+        self.timeout = timeout
         self.headless = headless
         self.max_pages = max_pages
         self.browser_profile_dir = browser_profile_dir
@@ -74,16 +74,16 @@ class WosBrowserSession:
     def fetch_alert(self, url: str, source_email_id: str | None = None) -> list[FetchedPaper]:
         if self._page is None:
             raise RuntimeError("浏览器会话尚未启动。")
-        _goto_wos_url(self._page, url, timeout_ms=self.timeout_ms)
+        _goto_wos_url(self._page, url, timeout_ms=self.timeout * 1000)
         _wait_for_wos_records_or_login(
             self._page,
-            timeout_ms=self.timeout_ms,
+            timeout_ms=self.timeout * 1000,
             manual_login_wait_seconds=self.manual_login_wait_seconds,
         )
         return _collect_wos_records_across_pages(
             self._page,
             source_email_id=source_email_id,
-            timeout_ms=self.timeout_ms,
+            timeout_ms=self.timeout * 1000,
             max_pages=self.max_pages,
         )
 
@@ -91,14 +91,14 @@ class WosBrowserSession:
 def fetch_wos_alert_with_browser(
     url: str,
     source_email_id: str | None = None,
-    timeout_ms: int = 30000,
-    headless: bool = False,
+    timeout: int = 30,
+    headless: bool = True,
     max_pages: int = 20,
     browser_profile_dir: str | None = DEFAULT_BROWSER_PROFILE_DIR,
     manual_login_wait_seconds: int = 0,
 ) -> list[FetchedPaper]:
     with WosBrowserSession(
-        timeout_ms=timeout_ms,
+        timeout=timeout,
         headless=headless,
         max_pages=max_pages,
         browser_profile_dir=browser_profile_dir,

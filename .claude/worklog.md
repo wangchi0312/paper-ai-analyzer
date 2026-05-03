@@ -6,6 +6,34 @@
 
 ## 2026-05-03
 
+### 代码质量改进：统一超时单位（秒）
+
+### 做了什么
+- 统一 wos_browser.py 的超时单位：将 `timeout_ms`（毫秒）改为 `timeout`（秒），与全项目保持一致。
+- 修改 `WosBrowserSession.__init__` 参数：`timeout_ms: int = 30000` → `timeout: int = 30`。
+- 修改 `fetch_wos_alert_with_browser` 参数：`timeout_ms: int = 30000` → `timeout: int = 30`。
+- 内部调用处自动转换：`self.timeout * 1000` 转换为毫秒供 Playwright 使用。
+- 保持内部函数参数名不变（`_goto_wos_url` 等仍使用 `timeout_ms`），因为它们是内部实现细节。
+
+### 为什么
+- 超时单位不一致（毫秒 vs 秒）容易混淆，增加维护成本。
+- 与其他模块（如 fulltext_resolver）保持一致，所有超时参数统一使用秒。
+- 用户配置时更容易理解：30 秒比 30000 毫秒更直观。
+
+### 影响文件
+- paper_analyzer/ingestion/wos_browser.py
+
+### 验证结果
+- 相关测试通过：`test_wos_browser.py: 19 passed`，`test_fetch_papers.py: 14 passed`。
+
+### 下一步
+- 提交本次修改。
+- 继续处理其他改进项（错误处理细化）。
+
+---
+
+## 2026-05-03
+
 ### 代码质量改进：路径一致性 + 异常文件清理
 
 ### 做了什么
