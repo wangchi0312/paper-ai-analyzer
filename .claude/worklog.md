@@ -1697,3 +1697,39 @@
 - 用户反馈最新运行卡在第一篇论文。检查发现当前输出目录 `data/outputs/20260506_201701` 只有 `papers/01_...pdf.part`，且大小为 0 字节，说明旧代码卡在 SPIS 直接下载流。
 - 将 SPIS 直接下载流改为短超时：连接/读超时 10 秒，总下载预算最多 90 秒；超时后删除 `.part` 并回退文献求助。
 - 真实小测：第一篇 `Hybrid two-stage reconstruction...` 在新保护下可保存 4,923,079 字节 PDF，文件头 `%PDF-1.7`，无残留 `.part`。
+## 2026-05-06 对话式学术 Agent 重构启动
+
+### 做了什么
+- 需求方向从“文献追踪助手/自动下载 PDF”调整为“本地对话式学术助手”。
+- 明确旧 PDF 自动下载链路退出默认主流程，现有 PDF 解读、WoS 候选提取、兴趣筛选等能力改造为 Agent 工具。
+- 新增长期记忆方向：论文知识库 `paper_corpus` 与兴趣记忆 `interest_memory`，第一版目标使用 Chroma，本地缺依赖时允许降级保证应用可打开。
+
+### 为什么
+- 自动下载受出版商、人机验证、机构认证和网络状态影响过大，不适合作为主链路。
+- 用户希望学习成熟 Agent 应用架构，以对话框为主，让系统随着论文和反馈逐步理解研究方向。
+
+### 影响文件计划
+- .claude/spec.md
+- .claude/worklog.md
+- README.md
+- pyproject.toml
+- requirements.txt
+- app.py
+- paper_analyzer/agent/
+- tests/test_agent_*.py
+
+### 验证计划
+- 新增 Agent runtime、工具注册和记忆层单元测试。
+- 保留旧 PDF/WoS 核心能力测试。
+- 启动 Streamlit 验证 chat-first 页面可打开。
+
+### 落地结果
+- 新增 `paper_analyzer/agent/` 轻量 Agent 内核，包含 runtime、待确认动作、工具注册、工具调用日志和两层记忆管理。
+- Streamlit `app.py` 已改为 chat-first 页面，上传 PDF 后先生成待确认动作；默认工具列表不暴露自动下载工具。
+- README 已更新为 Academic Agent 方向，说明自动下载 PDF 退出默认主流程。
+- 新增 Chroma 依赖声明；记忆层在未安装/不可用时自动退回 JSON 存储。
+- 新增 Agent runtime 与 memory 单元测试。
+
+### 验证结果
+- `D:\software\anaconda\envs\paper-ai\python.exe -m pytest -q tests -p no:cacheprovider --basetemp data\outputs\test_tmp\pytest_tmp`
+- 结果：`186 passed`。

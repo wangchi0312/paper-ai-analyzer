@@ -60,7 +60,7 @@ def test_detect_email_provider_qq():
     assert _detect_email_provider("user@qq.com") == "qq"
 
 
-def test_load_full_text_config_defaults_to_spis(monkeypatch):
+def test_load_full_text_config_defaults_to_manual(monkeypatch):
     monkeypatch.delenv("FULL_TEXT_SOURCE", raising=False)
     monkeypatch.delenv("SPIS_BASE_URL", raising=False)
     monkeypatch.delenv("SPIS_WAIT_MINUTES", raising=False)
@@ -70,7 +70,7 @@ def test_load_full_text_config_defaults_to_spis(monkeypatch):
     config_mod._loaded = True
     cfg = load_full_text_config()
 
-    assert cfg.source == "spis"
+    assert cfg.source == "manual"
     assert cfg.spis_base_url == "https://spis.hnlat.com/"
     assert cfg.spis_wait_minutes == 30
     assert cfg.spis_poll_interval_seconds == 60

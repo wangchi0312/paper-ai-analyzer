@@ -487,7 +487,7 @@ def test_resolve_full_text_keeps_api_fallback_disabled_by_default(monkeypatch):
     assert "开放获取/API 兜底默认关闭" in result.reason
 
 
-def test_resolve_full_text_uses_spis_by_default(monkeypatch):
+def test_resolve_full_text_does_not_use_spis_by_default(monkeypatch):
     seen = []
 
     monkeypatch.setattr("paper_analyzer.fulltext.resolver.resolve_manual_pdf", lambda *args, **kwargs: None)
@@ -505,8 +505,8 @@ def test_resolve_full_text_uses_spis_by_default(monkeypatch):
     )
 
     assert result.success is False
-    assert result.source == "spis_email_timeout"
-    assert seen == [("SPIS Paper", Path("data/outputs/test_tmp/fulltext_spis"), 2)]
+    assert result.source is None
+    assert seen == []
 
 
 def test_resolve_full_text_prefers_manual_pdf(monkeypatch):

@@ -32,17 +32,21 @@ paper_analyzer/       # 业务代码包
   embedding/          # embedder.py, similarity.py
   pdf/                # parser.py, ocr.py, text_selector.py
   llm/                # analyzer.py, client.py, prompt.py
-  ingestion/          # [V2] email_reader.py, wos_parser.py
-  data/               # schema.py (Paper, PaperAnalysis, FetchedPaper)
-  report/             # writer.py
+  ingestion/          # [V2] email_reader.py, wos_parser.py, wos_browser.py, metadata_enricher.py
+  data/               # schema.py (Paper, PaperAnalysis, FetchedPaper, FetchAudit)
+  report/             # writer.py, weekly.py
+  fulltext/           # [V2] resolver.py, downloader.py, source.py, manual.py
+  notification/       # [V2] feishu.py
   utils/              # config.py, logger.py
 pipeline/             # CLI 启动脚本（build_profile, fetch_papers, analyze_papers）
 data/
   profile_pdfs/       # 构建兴趣向量的 PDF
   incoming_pdfs/      # 待分析 PDF
-  processed/          # profile.npy, profile.json, seen_emails.json
-  outputs/            # <timestamp>/results.json + report.md
+  processed/          # profile.npy, profile.json, seen_emails.json, fetched_papers.json, fetch_audit.json
+  outputs/            # <timestamp>/results.json + report.md + weekly_report.md
+  browser_profiles/   # [V2] Playwright 持久浏览器 profile（已 gitignore）
 tests/
+skills/               # 给 AI 查阅的说明书
 main.py               # 统一 CLI 入口（build-profile / analyze / fetch-papers / run）
 app.py                # Streamlit 前端
 pyproject.toml
@@ -71,12 +75,23 @@ pyproject.toml
 
 ## 关键数据结构
 
-`Paper`: title, source_path(Optional), link(Optional)[V2], abstract, selected_text, full_text, embedding, score, analysis(PaperAnalysis|None), skipped_reason, source_email_id(Optional)[V2]
+`Paper`: title, source_path(Optional), link(Optional)[V2], abstract, selected_text, full_text, embedding, score, analysis(PaperAnalysis|None), skipped_reason, source_email_id(Optional)[V2], full_text_path(Optional)[V2], full_text_source(Optional)[V2], full_text_status(Optional)[V2], stage_status[V2]
 
-`FetchedPaper`[V2]: title, abstract, doi, link, source_email_id, fetch_method("email"/"web")
+`FetchedPaper`[V2]: title, abstract, doi(Optional), link(Optional), authors(Optional), venue(Optional), source_email_id(Optional), fetch_method("email"/"web"/组合)
+
+`FetchAudit`[V2]: fetched_at, since_date, max_emails, no_web, email_count, parsed_paper_count, unique_paper_count, duplicate_paper_count, output_path, 以及 WoS 扩展、浏览器模式、元数据补全等审计字段
 
 `PaperAnalysis`: first_author/affiliation, second_author/affiliation, corresponding_author/affiliation, publication_year, paper_title, venue, doi, core_problem, core_hypotheses(list), research_approach, key_methods, data_source_and_scale, core_findings, main_conclusions, field_contribution, relevance_to_my_research, highlights, limitations
 
 ## 技术选型
 
 sentence-transformers, PyMuPDF, pytesseract, pdf2image, numpy, openai 兼容 API 客户端, python-dotenv, streamlit
+# 2026-05-06 当前方向：对话式学术 Agent
+
+项目定位已从“文献追踪/自动下载助手”调整为“本地对话式学术助手”。默认入口是 Streamlit 聊天界面，Agent 先理解用户意图并提出待确认动作，再调用工具执行。自动出版商下载、SPIS 下载和文献求助不再属于默认主流程；旧代码仅作为 legacy/experimental 能力保留。
+
+新核心模块：
+- `paper_analyzer/agent/`：AcademicAgent runtime、PendingAction、ToolRegistry、AcademicMemory。
+- 默认工具：PDF 解读、WoS Alert 候选筛选、记忆检索、兴趣记忆更新、报告生成。
+- 长期记忆：`paper_corpus` 与 `interest_memory` 两层，目标使用 Chroma；未安装时降级到 JSON fallback。
+- WoS 工具只做候选提取和兴趣推荐，不下载 PDF。

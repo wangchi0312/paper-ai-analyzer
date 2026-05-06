@@ -1,73 +1,56 @@
-# Academic Paper AI Analyzer
+# Academic Agent
 
-本地运行的文献追踪与论文分析助手。项目通过用户已有论文构建研究兴趣向量，再对新论文或 Web of Science Citation Alert 邮件中的论文做相关性评分和结构化分析。
+本项目正在从“文献追踪与自动下载工具”重构为“本地对话式学术助手”。用户通过聊天框与 Agent 协作：上传论文 PDF、请求解读、筛选 WoS Alert 候选、检索历史论文与研究兴趣、生成报告。
 
-## 功能
+自动下载 PDF 不再是默认主流程。出版商网页、SPIS、文献求助等旧链路仅作为 legacy/experimental 代码保留，默认 UI 和 Agent 工具不会自动触发下载，也不会绕过人机验证、机构认证或付费墙。
 
-- 从本地 PDF 构建研究兴趣向量。
-- 分析单篇 PDF，输出相关性分数、JSON 和 Markdown 报告。
-- 从 QQ 邮箱读取 WoS Citation Alert 邮件，解析论文标题、摘要、DOI 和链接。
-- 对邮件论文批量计算相似度，并支持 `--top-k` 控制 LLM 调用数量。
-- 提供基础 Streamlit 前端用于单篇 PDF 分析。
+## 当前能力
 
-## 环境
+- 聊天式 Streamlit 本地界面。
+- 上传 PDF 后，由 Agent 先提出解读计划，用户确认后再执行。
+- WoS Alert 筛选作为 Agent 工具：只读取候选论文、摘要和元数据，输出推荐理由与“建议手动下载 PDF 后上传深读”。
+- 两层长期记忆：
+  - `paper_corpus`：上传/解读/筛选过的论文知识。
+  - `interest_memory`：研究方向、方法偏好、排除方向和用户反馈。
+- 记忆层优先使用 Chroma；本地未安装时会降级到 JSON 存储，保证应用可打开。
 
-推荐 Python 3.11。
+## 安装
 
 ```bash
 pip install -r requirements.txt
 pip install -e .
 ```
 
-复制 `.env.example` 为本地 `.env`，再填写自己的 API key 和邮箱授权码。不要提交真实 `.env`。
+复制 `.env.example` 为本地 `.env`，填写自己的 LLM 和邮箱配置。不要提交真实 `.env`。
 
-## 常用命令
-
-构建兴趣向量：
-
-```bash
-python main.py build-profile --input data/profile_pdfs
-```
-
-分析单篇 PDF：
-
-```bash
-python main.py analyze --pdf path/to/paper.pdf --skip-llm
-```
-
-从邮件抓取论文：
-
-```bash
-python main.py fetch-papers --no-web --max 50
-```
-
-批量分析邮件论文：
-
-```bash
-python main.py analyze --source fetch --skip-llm
-python main.py analyze --source fetch --top-k 5
-python main.py analyze --source fetch --top-k 5 --download-full-text --skip-llm
-python main.py analyze --source fetch --top-k 5 --download-full-text --manual-pdf-dir data/manual_pdfs
-```
-
-说明：
-
-- `--download-full-text` 会对达到阈值且进入 top-k 的论文尝试合法全文获取。
-- 在线全文来源包括出版商 PDF 直链、OpenAlex、Unpaywall、Semantic Scholar 和 arXiv。
-- 付费或订阅文献不会绕过付费墙；可将已合法获取的 PDF 放入 `--manual-pdf-dir` 指定目录，系统会按 DOI/标题匹配后继续全文解析。
-- `--full-text-timeout` 控制单次全文查找/下载超时，默认 10 秒。
-
-启动 Streamlit：
+## 启动
 
 ```bash
 python -m streamlit run app.py
 ```
 
-## 输出
+推荐在本项目约定的 Conda 环境中运行：
 
-- 兴趣向量：`data/processed/profile.npy`
-- 邮件抓取结果：`data/processed/fetched_papers.json`
-- 抓取审计：`data/processed/fetch_audit.json`
-- 分析报告：`data/outputs/<timestamp>/results.json` 和 `report.md`
+```bash
+D:\software\anaconda\envs\paper-ai\python.exe -m streamlit run app.py
+```
 
-这些运行产物默认不提交到 Git。
+## 旧 CLI
+
+旧 CLI 仍保留，作为底层工具和回归测试入口：
+
+```bash
+python main.py build-profile --input data/profile_pdfs
+python main.py analyze --pdf path/to/paper.pdf --skip-llm
+python main.py fetch-papers --no-web --max 50
+python main.py analyze --source fetch --skip-llm
+```
+
+带 `--download-full-text` 的旧命令不再推荐作为默认流程。合法获取的 PDF 请直接上传给 Agent 进行深读。
+
+## 数据目录
+
+- `data/library/`：用户上传或允许保存的论文资料。
+- `data/memory/chroma/`：Chroma 本地向量库。
+- `data/conversations/`：Agent 工具调用日志和会话产物。
+- `data/outputs/`：报告和分析结果。

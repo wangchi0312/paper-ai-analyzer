@@ -60,7 +60,7 @@ def resolve_full_text(
     if manual_result and manual_result.reason:
         errors.append(f"manual_upload: {manual_result.reason}")
 
-    configured_source = (full_text_source or load_full_text_config().source or "spis").lower()
+    configured_source = (full_text_source or load_full_text_config().source or "manual").lower()
     if configured_source in {"spis", "auto"}:
         spis_result = resolve_via_spis(paper, output_dir=output_dir, index=index)
         if spis_result.success:

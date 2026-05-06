@@ -168,7 +168,7 @@ def load_email_config(email_provider: str | None = None) -> EmailConfig:
 def load_full_text_config() -> FullTextConfig:
     _ensure_dotenv()
     return FullTextConfig(
-        source=os.getenv("FULL_TEXT_SOURCE", "spis").strip().lower() or "spis",
+        source=os.getenv("FULL_TEXT_SOURCE", "manual").strip().lower() or "manual",
         spis_base_url=os.getenv("SPIS_BASE_URL", "https://spis.hnlat.com/").strip() or "https://spis.hnlat.com/",
         spis_wait_minutes=_env_int("SPIS_WAIT_MINUTES", 30, minimum=0),
         spis_poll_interval_seconds=_env_int("SPIS_POLL_INTERVAL_SECONDS", 60, minimum=5),
