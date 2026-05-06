@@ -1,13 +1,28 @@
 import imaplib
 import email
 import email.message
+import re
+from dataclasses import dataclass
+from datetime import datetime, timezone
 from email.header import decode_header
+from email.utils import parsedate_to_datetime
 from pathlib import Path
 
 from paper_analyzer.utils.config import EmailConfig, load_email_config
 from paper_analyzer.utils.logger import get_logger
 
 logger = get_logger(__name__)
+
+
+@dataclass
+class PdfEmailAttachment:
+    subject: str
+    sender: str
+    message_id: str
+    received_at: datetime | None
+    filename: str
+    payload: bytes
+    body_text: str
 
 
 def _decode_header_value(value):
@@ -36,6 +51,113 @@ def _get_html_body(msg: email.message.Message) -> str | None:
             charset = msg.get_content_charset() or "utf-8"
             return payload.decode(charset, errors="replace")
     return None
+
+
+def _get_text_body(msg: email.message.Message) -> str:
+    parts: list[str] = []
+    if msg.is_multipart():
+        for part in msg.walk():
+            if part.get_content_maintype() == "multipart":
+                continue
+            if part.get_content_disposition() == "attachment":
+                continue
+            if part.get_content_type() not in {"text/plain", "text/html"}:
+                continue
+            payload = part.get_payload(decode=True)
+            if not payload:
+                continue
+            charset = part.get_content_charset() or "utf-8"
+            parts.append(payload.decode(charset, errors="replace"))
+    else:
+        payload = msg.get_payload(decode=True)
+        if payload:
+            charset = msg.get_content_charset() or "utf-8"
+            parts.append(payload.decode(charset, errors="replace"))
+    return "\n".join(parts)
+
+
+def fetch_pdf_attachments_since(
+    since: datetime,
+    config: EmailConfig | None = None,
+    max_emails: int = 200,
+) -> list[PdfEmailAttachment]:
+    """Fetch PDF attachments from inbox after ``since`` without touching seen state."""
+    if config is None:
+        config = load_email_config()
+
+    since_cmp = since
+    if since_cmp.tzinfo is None:
+        since_cmp = since_cmp.replace(tzinfo=timezone.utc)
+
+    imap = None
+    results: list[PdfEmailAttachment] = []
+    try:
+        imap = imaplib.IMAP4_SSL(config.imap_host, config.imap_port)
+        imap.login(config.address, config.auth_code)
+        imap.select("INBOX")
+        status, data = imap.search(None, "ALL")
+        if status != "OK":
+            raise RuntimeError("IMAP search failed")
+        all_ids = data[0].split()
+        for mid in reversed(all_ids[-max_emails:]):
+            status, msg_data = imap.fetch(mid, "(RFC822)")
+            if status != "OK" or not msg_data or not msg_data[0]:
+                continue
+            msg = email.message_from_bytes(msg_data[0][1])
+            received_at = _message_datetime(msg)
+            if received_at is not None:
+                received_cmp = received_at if received_at.tzinfo else received_at.replace(tzinfo=timezone.utc)
+                if received_cmp < since_cmp:
+                    continue
+            subject = _decode_header_value(msg.get("Subject", ""))
+            sender = _decode_header_value(msg.get("From", ""))
+            message_id = msg.get("Message-ID", "")
+            body_text = _get_text_body(msg)
+            for part in msg.walk():
+                if part.get_content_maintype() == "multipart":
+                    continue
+                filename = _decode_header_value(part.get_filename() or "")
+                payload = part.get_payload(decode=True) or b""
+                content_type = (part.get_content_type() or "").lower()
+                if not _is_pdf_attachment(filename, content_type, payload):
+                    continue
+                results.append(
+                    PdfEmailAttachment(
+                        subject=subject,
+                        sender=sender,
+                        message_id=message_id,
+                        received_at=received_at,
+                        filename=filename or "paper.pdf",
+                        payload=payload,
+                        body_text=body_text,
+                    )
+                )
+        return results
+    finally:
+        if imap:
+            try:
+                imap.logout()
+            except Exception:
+                pass
+
+
+def _message_datetime(msg: email.message.Message) -> datetime | None:
+    raw = msg.get("Date")
+    if not raw:
+        return None
+    try:
+        return parsedate_to_datetime(raw)
+    except Exception:
+        return None
+
+
+def _is_pdf_attachment(filename: str, content_type: str, payload: bytes) -> bool:
+    lowered_name = filename.lower()
+    return (
+        content_type == "application/pdf"
+        or lowered_name.endswith(".pdf")
+        or payload[:1024].lstrip().startswith(b"%PDF")
+    )
 
 
 def _load_seen_message_ids(path: Path) -> set[str]:
@@ -121,7 +243,8 @@ def fetch_wos_emails_with_stats(
         # 从最新邮件开始往前扫描，收集未处理的 Citation Alert。
         # 正式版：遇到已处理的邮件立即停止，不再往前扫描。
         # 测试阶段：使用 --ignore-seen 完全忽略 seen 机制，返回最新 N 封。
-        wos_ids: list[bytes] = []
+        # Phase 1: 从最新邮件开始，按 subject 筛选 Citation Alert，只收集 max_emails 封
+        alert_candidates: list[tuple[bytes, str, str]] = []
         scan_limit = min(len(all_ids), 2000)
         check_ids = all_ids[-scan_limit:]
         stats["checked_email_count"] = len(check_ids)
@@ -135,23 +258,34 @@ def fetch_wos_emails_with_stats(
             if "web of science" not in header_text and "clarivate" not in header_text:
                 continue
             stats["matched_wos_email_count"] += 1
+
+            # 只看 subject 中包含 "Alert" 的邮件（排除 password reset 等通知）
+            if "web of science alert" not in header_text:
+                stats["skipped_non_alert_email_count"] += 1
+                continue
+
             msg_id_raw = msg_data[0][1].decode("utf-8", errors="replace")
             msg_id_match = _extract_message_id(msg_id_raw)
             if not ignore_seen and msg_id_match and msg_id_match in seen_ids:
                 stats["skipped_seen_email_count"] += 1
                 hit_seen_alert = True
-                break  # 正式版：遇到已处理邮件立即停止
-            wos_ids.append(mid)
-            # 收集足够多候选后再退出 header 扫描（非 Alert 系统通知可能占一定比例）
-            if len(wos_ids) >= max(max_emails * 20, 200):
+                continue
+
+            # 从 header 提取主题行
+            subject_match = re.search(r"Subject:\s*(.+)", msg_data[0][1].decode("utf-8", errors="replace"), re.IGNORECASE)
+            subject_preview = _decode_header_value(subject_match.group(1).strip()) if subject_match else ""
+            alert_candidates.append((mid, msg_id_match or "", subject_preview))
+
+            if len(alert_candidates) >= max_emails:
                 break
 
-        logger.info("找到 %d 封未处理的 WoS 邮件（跳过 %d 封已处理）", len(wos_ids), stats["skipped_seen_email_count"])
+        logger.info("找到 %d 封未处理的 Citation Alert", len(alert_candidates))
 
+        # Phase 2: 只下载这 max_emails 封邮件的正文，提取 AlertSummary 链接即可
         results = []
         new_seen_ids = set()
 
-        for mid in wos_ids:
+        for mid, msg_id, subject in alert_candidates:
             if len(results) >= max_emails:
                 break
             status, msg_data = imap.fetch(mid, "(RFC822)")
@@ -161,22 +295,15 @@ def fetch_wos_emails_with_stats(
 
             raw_email = msg_data[0][1]
             msg = email.message_from_bytes(raw_email)
-
-            subject = _decode_header_value(msg.get("Subject", ""))
-            message_id = msg.get("Message-ID", "")
             html = _get_html_body(msg)
 
             if not html:
                 logger.warning("邮件无 HTML 正文：%s", subject[:60])
                 continue
-            if not _looks_like_wos_alert_email(subject, html):
-                stats["skipped_non_alert_email_count"] += 1
-                logger.info("跳过非 Citation Alert 邮件：%s", subject[:60])
-                continue
 
-            results.append((message_id, subject, html))
-            if message_id:
-                new_seen_ids.add(message_id)
+            results.append((msg_id or msg.get("Message-ID", ""), subject, html))
+            if msg_id:
+                new_seen_ids.add(msg_id)
             logger.info("获取邮件：%s", subject[:60])
 
         # 保存已处理邮件 ID

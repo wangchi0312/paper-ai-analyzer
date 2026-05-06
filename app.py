@@ -3,6 +3,7 @@ import os
 from pathlib import Path
 import time
 import json
+import os
 from collections import Counter
 
 import streamlit as st
@@ -106,6 +107,7 @@ def _render_weekly_tab(params: dict) -> None:
         ignore_seen = st.checkbox("重新扫描已处理邮件", value=False, help="调试或重复生成周报时开启。开启后不会更新 seen_emails.json。")
         expand_alert_pages = st.checkbox("进入 WoS 完整结果页扩展候选", value=True, help="尝试打开邮件里的 View all 链接，获取完整 Alert 结果；若 WoS 需要登录会自动回退到邮件内容。")
         use_browser = st.checkbox("使用浏览器模式解析 WoS 完整页", value=False, help="requests 解析不到完整结果页时启用。需要安装 playwright 和 chromium。")
+        browser_visible = st.checkbox("显示浏览器窗口", value=False, disabled=not use_browser, help="需要人工完成 WoS/机构登录或人机验证时开启。")
         browser_max_pages = st.number_input("浏览器最多翻页数", min_value=1, max_value=50, value=20, step=1, disabled=not use_browser)
         browser_manual_login_wait_seconds = st.number_input(
             "手动完成 WoS/机构登录等待秒数",
@@ -128,7 +130,9 @@ def _render_weekly_tab(params: dict) -> None:
             help="单次开放获取查询或 PDF 下载请求的超时；调试时建议 8-10 秒，避免某个站点长时间卡住。",
         )
         download_only = st.checkbox("只验证抓取和全文下载，不调用 LLM", value=False, help="用于调试候选抓取和 PDF 下载。开启后不需要填写 API Key，也不会调用模型。")
-        unpaywall_email = st.text_input("Unpaywall 查询邮箱", value=email_address, help="用于查询开放获取全文，可填常用邮箱。")
+        full_text_api_fallback = st.checkbox("启用开放获取/API 兜底", value=False, help="默认关闭。开启后才会尝试 Unpaywall、OpenAlex、Semantic Scholar、arXiv 等来源。")
+        full_text_source = st.selectbox("全文获取来源", ["spis", "publisher", "auto"], index=0, disabled=not download_full_text, help="默认使用 SPIS 文献求助；publisher/auto 仅用于显式兜底调试。")
+        unpaywall_email = st.text_input("Unpaywall 查询邮箱", value=email_address, disabled=not full_text_api_fallback, help="仅在启用开放获取/API 兜底时使用。")
         manual_pdf_dir = st.text_input("手动 PDF 兜底目录（可选）", value="", help="把付费/订阅文献 PDF 放入该目录，系统会按 DOI/标题匹配后用于全文解析。")
         push_to_feishu = st.checkbox("生成后推送到飞书", value=False)
         feishu_webhook = ""
@@ -187,6 +191,7 @@ def _render_weekly_tab(params: dict) -> None:
                     use_browser=use_browser,
                     browser_max_pages=int(browser_max_pages),
                     browser_manual_login_wait_seconds=int(browser_manual_login_wait_seconds),
+                    browser_headless=not browser_visible,
                     progress_callback=report_progress,
                 )
                 if not fetched:
@@ -194,6 +199,7 @@ def _render_weekly_tab(params: dict) -> None:
                     _show_fetch_audit(DEFAULT_AUDIT)
                     return
                 report_progress(f"候选抓取完成，共 {len(fetched)} 篇；开始相似度筛选和全文处理")
+                os.environ["FULL_TEXT_SOURCE"] = full_text_source
                 output_dir = analyze_papers(
                     papers=fetched,
                     profile_path=params["profile_path"],
@@ -209,6 +215,7 @@ def _render_weekly_tab(params: dict) -> None:
                     unpaywall_email=unpaywall_email or email_address,
                     full_text_timeout=int(full_text_timeout),
                     manual_pdf_dir=manual_pdf_dir or None,
+                    full_text_api_fallback=full_text_api_fallback,
                     progress_callback=report_progress,
                 )
             if push_to_feishu:
@@ -280,7 +287,9 @@ def _render_batch_tab(params: dict) -> None:
         disabled=not download_full_text,
         key="batch_full_text_timeout",
     )
-    unpaywall_email = st.text_input("Unpaywall 查询邮箱（可选）")
+    full_text_api_fallback = st.checkbox("启用开放获取/API 兜底", value=False)
+    full_text_source = st.selectbox("全文获取来源", ["spis", "publisher", "auto"], index=0, disabled=not download_full_text, key="batch_full_text_source")
+    unpaywall_email = st.text_input("Unpaywall 查询邮箱（可选）", disabled=not full_text_api_fallback)
     manual_pdf_dir = st.text_input("手动 PDF 兜底目录（可选）", value="")
     push_to_feishu = st.checkbox("生成后推送到飞书", value=False)
     feishu_webhook = ""
@@ -313,6 +322,7 @@ def _render_batch_tab(params: dict) -> None:
     if st.button("开始批量分析", type="primary"):
         with st.spinner("正在批量分析..."):
             try:
+                os.environ["FULL_TEXT_SOURCE"] = full_text_source
                 output_dir = analyze_papers(
                     papers=fetched_papers,
                     profile_path=params["profile_path"],
@@ -328,6 +338,7 @@ def _render_batch_tab(params: dict) -> None:
                     unpaywall_email=unpaywall_email or None,
                     full_text_timeout=int(full_text_timeout),
                     manual_pdf_dir=manual_pdf_dir or None,
+                    full_text_api_fallback=full_text_api_fallback,
                 )
             except Exception as exc:
                 st.error(f"批量分析失败：{exc}")

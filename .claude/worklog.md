@@ -4,6 +4,251 @@
 
 ---
 
+## 2026-05-04
+
+### 修复：人工验证循环时快速跳过
+
+### 做了什么
+- 用户再次确认：即使改用本机 Chrome 通道，验证框仍反复从“正在验证”回到“请验证您是真人”。
+- 准备给出版商下载阶段增加验证循环保护：短时间内一直处于同一类验证页时，不再等待完整人工验证窗口，直接记录失败并跳过当前论文。
+
+### 为什么
+- 这种状态说明站点持续拒绝自动化浏览器；继续等待不会提高成功率，只会让下载阶段卡死。
+
+### 影响文件
+- `.claude/spec.md`
+- `.claude/worklog.md`
+- `paper_analyzer/fulltext/resolver.py`
+- `tests/test_fulltext_resolver.py`
+
+### 验证结果
+- 全文下载相关测试：`tests/test_fulltext_resolver.py tests/test_analyze_fetched_papers.py` 共 `47 passed`。
+- 回归测试：`tests/test_wos_browser.py tests/test_fetch_papers.py tests/test_fulltext_resolver.py tests/test_analyze_fetched_papers.py` 共 `90 passed`。
+
+### 修复：出版商验证循环时改用真实浏览器通道
+
+### 做了什么
+- 用户反馈手动验证后页面反复回到“请验证您是真人”，判断为 Playwright 自带自动化 Chromium 被站点持续判定不可信。
+- 准备让出版商下载阶段优先使用本机 Chrome/Edge 通道，并让 `PUBLISHER_BROWSER_PROFILE_DIR` 真正生效。
+
+### 为什么
+- 持久化 `user_data_dir` 只能保存合法验证后的状态；如果浏览器本身被验证系统拒绝，保存上下文也无法解决循环。
+- 使用本机真实浏览器通道可以提高人工验证通过后状态可复用的概率，但仍不绕过验证码。
+
+### 影响文件
+- `.claude/spec.md`
+- `.claude/worklog.md`
+- `.env.example`
+- `paper_analyzer/fulltext/resolver.py`
+- `tests/test_fulltext_resolver.py`
+
+### 验证结果
+- 全文下载相关测试：`tests/test_fulltext_resolver.py tests/test_analyze_fetched_papers.py` 共 `45 passed`。
+- 回归测试：`tests/test_wos_browser.py tests/test_fetch_papers.py tests/test_fulltext_resolver.py tests/test_analyze_fetched_papers.py` 共 `88 passed`。
+
+### 改进：全文下载阶段采用手动验证 + 有限自动化
+
+### 做了什么
+- 根据用户确认的可行方案，补充下载阶段长期规则：有头浏览器、持久化 `user_data_dir`、人工完成一次验证后复用状态、出版商访问节流。
+
+### 为什么
+- 项目不能绕过 Cloudflare/CAPTCHA/机构认证，但可以把验证设计成可见、可恢复、可跳过的人工协作点，避免整个流程静默卡死。
+
+### 影响文件
+- `.claude/spec.md`
+- `.claude/worklog.md`
+- `paper_analyzer/fulltext/resolver.py`
+- `tests/test_fulltext_resolver.py`
+
+### 验证结果
+- 全文下载相关测试：`tests/test_fulltext_resolver.py tests/test_analyze_fetched_papers.py` 共 `42 passed`。
+- 回归测试：`tests/test_wos_browser.py tests/test_fetch_papers.py tests/test_fulltext_resolver.py tests/test_analyze_fetched_papers.py` 共 `85 passed`。
+
+### 修复：WoS 结果页滚动有进展但摘要计数为 0
+
+### 做了什么
+- 真实可见浏览器运行时确认：第 1 页能滚动收集到 50 篇，第 2 页能收集到 39 篇，说明滚动问题已基本收敛；但每轮“已有摘要”始终为 0。
+- 判断问题从“没有滚动/没有展开”转移为“结果页摘要容器解析失败”，后续需要修正解析器并重新跑完整流程。
+
+### 为什么
+- 用户的核心流程依赖 WoS 结果页完整摘要做兴趣筛选；如果摘要计数为 0，程序会错误进入 Full Record 兜底，重新变慢、变复杂。
+
+### 影响文件
+- `.claude/spec.md`
+- `.claude/worklog.md`
+- `paper_analyzer/ingestion/wos_browser.py`
+- `tests/test_wos_browser.py`
+
+### 验证结果
+- 已抓取真实 WoS 页面快照定位问题：标题链接本身带 `summary-record-title-link`，旧逻辑误把标题链接当成整条记录容器。
+- 修复后用真实快照验证：当前可见的两条记录分别解析出 1215 字符与 409 字符摘要。
+- 回归测试：`tests/test_wos_browser.py tests/test_fetch_papers.py tests/test_fulltext_resolver.py tests/test_analyze_fetched_papers.py` 共 `82 passed`。
+- 真实可见浏览器完整跑到抓取阶段结束：1 封邮件，WoS 完整页返回 89 篇，去重后 89 篇，89 篇都有摘要且长度均超过 80；`full_record_enriched_count=0`，没有退化为批量 Full Record 补摘要。
+- 用户观察到后续全文下载阶段卡在人机验证，已按用户要求停止运行；下一步应给下载阶段增加更清晰的“等待人工验证/跳过当前下载候选”进度和超时策略。
+
+### 修复：WoS 结果页反复处理前几篇与 Full Record 批量退化
+
+### 做了什么
+- 根据用户真实观察，确认 WoS 浏览器阶段存在三个问题：只对前几篇反复点 `show more`、滚动推进不稳定、摘要解析失败后又退化为逐篇打开 Full Record。
+- `wos_browser.py` 收集循环新增可观察进度：当前页、滚动轮次、已收集论文数、已有摘要数、本轮点击 `show more` 数和滚动是否成功。
+- `show more` 点击逻辑收紧：只点击当前视口内可见且未点击过的按钮，排除 `show less/收起`，避免反复处理同一批按钮。
+- 滚动逻辑收紧：只选择足够大的页面/结果列表容器滚动，滚动步长增大，并记录滚动状态；连续多轮无新增且滚动位置不变时停止当前页。
+- CLI `fetch-papers` / `run` 现在会把抓取阶段进度实时打印到控制台，长流程不再完全黑盒。
+- Full Record 摘要兜底新增上限 `FULL_RECORD_ABSTRACT_FALLBACK_LIMIT=8`；当结果页摘要解析大面积失败时，不再逐篇打开全部 Full Record，而是提示需要修复结果页摘要解析。
+
+### 为什么
+- 用户确认真实手动流程是在 WoS Alert 完整结果页展开摘要并筛选；项目不能因为摘要解析失败就回到全量 Full Record 扫描。
+- 91 篇论文下，缺少进度和短路条件会让真实运行无法判断是正常慢、页面卡住，还是逻辑在重复处理同一区域。
+
+### 影响文件
+- `.claude/spec.md`
+- `.claude/worklog.md`
+- `main.py`
+- `pipeline/fetch_papers.py`
+- `paper_analyzer/ingestion/wos_browser.py`
+- `tests/test_fetch_papers.py`
+- `tests/test_wos_browser.py`
+
+### 验证结果
+- 针对性测试：`tests/test_wos_browser.py tests/test_fetch_papers.py` 共 `39 passed`。
+- 扩展验证：`tests/test_wos_browser.py tests/test_fetch_papers.py tests/test_fulltext_resolver.py tests/test_analyze_fetched_papers.py` 共 `78 passed`。
+- 语法检查：`py_compile main.py pipeline/fetch_papers.py paper_analyzer/ingestion/wos_browser.py tests/test_wos_browser.py tests/test_fetch_papers.py` 通过。
+- 已确认没有遗留 `fetch-papers` / `main.py run` / `browser_profiles/wos` 相关进程。
+
+### 下一步
+- 再跑一次真实可见浏览器抓取，重点看控制台进度是否显示滚动推进、摘要数量是否增长，以及 Full Record 是否不再全量打开。
+
+---
+
+### 收敛：WoS 摘要优先筛选，Full Record 只作摘要兜底和下载入口
+
+### 做了什么
+- 修正 WoS 真实流程理解：兴趣筛选的文本应优先来自 WoS Alert 完整结果页，而不是先批量打开所有 Full Record。
+- 浏览器滚动收集 WoS 结果时，会先尝试点击可见的 `show more` / `更多` / `展开` 按钮，再解析列表卡片中的摘要。
+- `parse_wos_result_page()` 现在会从 summary record 容器中提取摘要，并保存到 `FetchedPaper.abstract`，供后续相似度筛选使用。
+- 移除抓取阶段“为了 DOI / publisher link 批量进入所有 Full Record”的逻辑。
+- 仅当 WoS 完整结果页中某篇论文摘要缺失或过短时，才进入该篇 Full Record 补摘要；这个步骤服务于兴趣筛选，不再作为全量元数据预处理。
+- 全文下载阶段如果某篇已通过筛选但缺少 publisher link，会进入该篇 Full Record 查找 `Full text at publisher`，再继续 `View PDF` 下载。
+
+### 为什么
+- 用户明确指出：WoS Alert 完整结果页本身有每篇文献摘要，只是需要点 `show more` 展开。完整摘要拿到后就可以兴趣筛选。
+- Full Record 只有在结果页拿不到完整摘要，或论文已通过兴趣筛选准备下载时才需要打开；否则 91 篇逐篇打开会非常慢，且不符合手动工作流。
+
+### 影响文件
+- `.claude/spec.md`
+- `.claude/worklog.md`
+- `paper_analyzer/ingestion/wos_browser.py`
+- `pipeline/fetch_papers.py`
+- `paper_analyzer/fulltext/resolver.py`
+- `tests/test_wos_browser.py`
+
+### 验证结果
+- 针对性测试：`tests/test_wos_browser.py tests/test_fetch_papers.py tests/test_fulltext_resolver.py` 共 `63 passed`。
+- 语法检查：`py_compile paper_analyzer/ingestion/wos_browser.py pipeline/fetch_papers.py paper_analyzer/fulltext/resolver.py tests/test_wos_browser.py` 通过。
+
+### 下一步
+- 用真实 WoS 可见浏览器再跑一封邮件，重点观察结果页摘要是否能通过 `show more` 批量展开并写入 `fetched_papers.json`。
+
+---
+
+### 改进：WoS 浏览器模式支持可见窗口
+
+### 做了什么
+- 根据用户确认，给 WoS 浏览器抓取链路新增可见窗口开关。
+- CLI `fetch-papers` 和 `run` 新增 `--browser-visible`；开启后传入 `headless=False`，Playwright 会启动可见 Chromium。
+- Streamlit 一键周报新增“显示浏览器窗口”复选框；需要人工完成 WoS/机构登录或人机验证时可开启。
+- `fetch_papers()` 新增 `browser_headless` 参数，默认仍保持无头模式，避免无人值守时弹窗。
+- 针对性测试覆盖 `browser_headless=False` 会传给 `WosBrowserSession`。
+
+### 为什么
+- 用户反馈真实流程需要看到浏览器页面，并可能在 WoS、机构认证或出版商页面手动处理验证。
+- 之前 `--use-browser` 只启动 headless Chromium，用户和 Agent 都看不到窗口，不适合复刻真实手动下载流程。
+
+### 影响文件
+- `.claude/spec.md`
+- `.claude/worklog.md`
+- `app.py`
+- `main.py`
+- `pipeline/fetch_papers.py`
+- `tests/test_fetch_papers.py`
+
+### 验证结果
+- 针对性测试：`tests/test_fetch_papers.py tests/test_wos_browser.py` 共 `37 passed`。
+- 语法检查：`py_compile app.py main.py pipeline/fetch_papers.py paper_analyzer/ingestion/wos_browser.py tests/test_fetch_papers.py` 通过。
+- 真实可见浏览器小测已确认启动的是 `chrome.exe` 而非 `chrome-headless-shell`；任务仍未在 3 分钟内完成，说明后续还需要继续优化 WoS 页面等待/人工接管流程。
+
+### 下一步
+- 在可见浏览器模式下增加更明确的阶段提示与人工接管点，避免程序长时间无反馈地等待 WoS 页面。
+
+---
+
+### 收敛：全文下载流程回归 WoS/出版商浏览器路径
+
+### 做了什么
+- 根据用户重新描述的手动流程更新 `.claude/spec.md`：邮件只作为 WoS Alert 入口，默认路径回到 `View all citations -> WoS 摘要筛选 -> Full text at publisher -> View PDF -> 保存 PDF`。
+- 调整 `resolve_full_text()`：默认只走手动 PDF 兜底和 WoS/出版商浏览器链路；OpenAlex、Unpaywall、Semantic Scholar、arXiv、Crossref TDM 等开放获取/API 来源改为显式开启的兜底。
+- 新增 CLI/前端开关：`--full-text-api-fallback` 与“启用开放获取/API 兜底”复选框，默认关闭。
+- 调整 `analyze_papers(download_full_text=True)`：PDF 下载失败或 PDF 文本提取失败时，论文保留为候选但不进入 LLM 深度解读，也不再退回摘要轻量解读。
+- 更新周报展示逻辑，全文失败只标记“全文获取失败”，不再提示“基于摘要的轻量解读”。
+- 更新测试，覆盖默认关闭 API 兜底、显式开启 API 兜底、全文失败不初始化 LLM、PDF 文本提取失败不深读等行为。
+
+### 为什么
+- 用户确认当前程序把下载流程复杂化，偏离了真实使用路径；项目应优先复刻用户日常浏览器操作，而不是默认使用多来源检索器。
+- “没有 PDF 就做摘要轻量解读”会掩盖真正问题：程序并没有完成用户想要的下载文献任务。
+
+### 影响文件
+- `.claude/spec.md`
+- `.claude/worklog.md`
+- `app.py`
+- `main.py`
+- `pipeline/analyze_papers.py`
+- `paper_analyzer/fulltext/resolver.py`
+- `paper_analyzer/report/weekly.py`
+- `tests/test_analyze_fetched_papers.py`
+- `tests/test_fulltext_resolver.py`
+
+### 验证结果
+- 针对性测试：`41 passed`。
+- 全量测试：`154 passed`。
+- 语法检查：`py_compile app.py main.py pipeline/analyze_papers.py paper_analyzer/fulltext/resolver.py paper_analyzer/report/weekly.py tests/test_analyze_fetched_papers.py tests/test_fulltext_resolver.py` 通过。
+
+### 下一步
+- 继续把 WoS 页面摘要展开、逐篇摘要筛选、出版商新窗口/PDF 预览新窗口这几个浏览器操作做得更直观，减少隐藏的 requests/API 补全路径。
+
+---
+
+### 修复：top-k 全文获取必须下载真实 PDF
+
+### 做了什么
+- 明确更新 `.claude/spec.md`：HTML、验证码页、登录页不再视为全文下载成功，深度解读必须基于 PDF。
+- 修改 `paper_analyzer/fulltext/resolver.py`：`publisher_html` 不再返回 `success=True`，即使抓到 HTML 正文也会标记为 PDF 获取失败。
+- 新增 Crossref TDM PDF link 候选来源，提高公开/出版社 TDM 链接命中率。
+- 新增可选 Elsevier Article Retrieval API PDF 下载路径，读取 `ELSEVIER_API_KEY`、`ELSEVIER_INSTTOKEN`、`ELSEVIER_ACCESS_TOKEN`；未配置时自动跳过。
+- 出版商浏览器下载改为复用持久化 profile，默认复用 WoS profile，也可通过 `PUBLISHER_BROWSER_PROFILE_DIR` 指定。
+- 修复 `resolver.py` 中因编码损坏导致的异常字符串/f-string 语法问题，并将下载失败原因恢复为正常中文。
+- `.env.example` 增加 Elsevier API 和出版商浏览器 profile 配置占位。
+
+### 为什么
+- 用户确认产品关键阻塞是 top-k 论文无法下载 PDF，HTML 正文缺图表和实验结果，不能支撑深度解读，也不满足“自动帮用户下载好 PDF”的目标。
+
+### 影响文件
+- `.claude/spec.md`
+- `.claude/worklog.md`
+- `.env.example`
+- `paper_analyzer/fulltext/resolver.py`
+- `tests/test_fulltext_resolver.py`
+
+### 验证结果
+- `py_compile paper_analyzer/fulltext/resolver.py tests/test_fulltext_resolver.py` 通过。
+- `tests/test_fulltext_resolver.py`：25 passed。
+- `tests/test_analyze_fetched_papers.py tests/test_fetch_papers.py tests/test_wos_browser.py`：52 passed。
+- 全量测试：156 passed。
+
+### 下一步
+- 在真实机构网络/VPN 环境中重跑一键周报或 `--download-full-text --skip-llm`，重点看 top-k 的 `full_text_status` 是否只在 PDF 成功时为 `downloaded`，以及 Elsevier API/Crossref TDM 是否提升 PDF 命中率。
+
+---
+
 ## 2026-05-03
 
 ### 代码质量改进：统一超时单位（秒）
@@ -1404,3 +1649,38 @@
 
 ### 下一步
 - 后续每次切换前按清单逐项勾选，并在 `.claude/worklog.md` 留痕。
+## 2026-05-06
+
+### 做了什么
+- 记录新的全文获取方向：默认使用 SPIS 文献求助，提交后轮询默认邮箱接收 PDF。
+- 明确旧出版商网页自动下载链路只保留为显式 fallback，不再作为默认路径。
+- 根据用户真实截图和本地探测，确认 SPIS 搜索结果卡片存在“下载”入口；后续实现调整为优先直接下载，失败后才文献求助。
+
+### 为什么
+- 真实运行中出版商/Cloudflare 验证循环导致自动下载不可用。
+- 用户的可行流程已经切换为 SPIS 文献求助 + 邮箱收 PDF，需要让代码流程回到简单、可观测、可维护。
+- 若 SPIS 已提供 PDF 下载链接，继续提交文献求助会更慢且容易误判为失败。
+
+### 影响文件
+- .claude/spec.md
+- .claude/worklog.md
+- paper_analyzer/fulltext/spis.py
+- paper_analyzer/fulltext/resolver.py
+- paper_analyzer/ingestion/email_reader.py
+- paper_analyzer/utils/config.py
+- pipeline/analyze_papers.py
+- main.py
+- app.py
+- .env.example
+- tests/test_spis_fulltext.py
+- tests/test_fulltext_resolver.py
+
+### 验证计划
+- 先跑 SPIS resolver 和全文 resolver 相关单元测试。
+- 如果单元测试通过，再做一次有限真实提交和邮箱轮询验证；真实等待可能受 SPIS 邮件投递时间影响。
+
+### 验证结果
+- 用户实测输出 `data/outputs/20260506_190437` 显示目标论文被标记为 `spis_not_found`，原因是旧解析器只识别详情页链接，没有识别搜索结果卡片。
+- 本地探测 SPIS 搜索页确认目标论文卡片存在“下载”按钮，链接指向 arXiv PDF。
+- 修复后真实小测：`Hybrid two-stage reconstruction of multiscale subsurface flow with physics-informed residual connected neural operator` 通过 SPIS 直接下载保存为 `data/debug/spis_direct/direct_resolver_fixed.pdf`，大小 4,923,079 字节，文件头为 `%PDF-1.7`。
+- 全量测试：`D:\software\anaconda\envs\paper-ai\python.exe -m pytest -q tests -p no:cacheprovider`，结果 `180 passed`。

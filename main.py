@@ -1,4 +1,5 @@
 import argparse
+import os
 
 
 def main() -> None:
@@ -33,6 +34,8 @@ def main() -> None:
     analyze_parser.add_argument("--unpaywall-email", default=None, help="Unpaywall 查询邮箱，用于开放获取全文查找")
     analyze_parser.add_argument("--full-text-timeout", type=int, default=10, help="单次全文查找/下载请求超时秒数")
     analyze_parser.add_argument("--manual-pdf-dir", default=None, help="手动 PDF 兜底目录，按 DOI/标题匹配后用于全文解析")
+    analyze_parser.add_argument("--full-text-api-fallback", action="store_true", help="全文下载失败时启用开放获取/API 兜底来源")
+    analyze_parser.add_argument("--full-text-source", choices=["spis", "publisher", "auto"], default=None, help="全文获取来源；默认读取 FULL_TEXT_SOURCE，未配置时使用 spis")
 
     fetch_parser = subparsers.add_parser("fetch-papers", help="从 WoS Citation Alert 邮件获取论文")
     fetch_parser.add_argument("--since", default=None, help="只获取该日期之后的邮件，格式 YYYY-MM-DD")
@@ -45,6 +48,8 @@ def main() -> None:
     fetch_parser.add_argument("--use-browser", action="store_true", help="requests 无法解析完整结果页时使用 Playwright 浏览器模式")
     fetch_parser.add_argument("--browser-max-pages", type=int, default=20, help="浏览器模式最多翻页数")
     fetch_parser.add_argument("--browser-manual-login-wait-seconds", type=int, default=0, help="浏览器模式遇到登录页时等待人工完成登录的秒数")
+    fetch_parser.add_argument("--browser-visible", action="store_true", help="以可见 Chromium 窗口运行浏览器模式，便于人工登录/验证")
+    fetch_parser.add_argument("--reset", action="store_true", help="清空长期论文库后重新开始抓取")
 
     run_parser = subparsers.add_parser("run", help="获取邮件论文并批量分析")
     run_parser.add_argument("--since", default=None, help="只获取该日期之后的邮件，格式 YYYY-MM-DD")
@@ -56,6 +61,8 @@ def main() -> None:
     run_parser.add_argument("--use-browser", action="store_true", help="requests 无法解析完整结果页时使用 Playwright 浏览器模式")
     run_parser.add_argument("--browser-max-pages", type=int, default=20, help="浏览器模式最多翻页数")
     run_parser.add_argument("--browser-manual-login-wait-seconds", type=int, default=0, help="浏览器模式遇到登录页时等待人工完成登录的秒数")
+    run_parser.add_argument("--browser-visible", action="store_true", help="以可见 Chromium 窗口运行浏览器模式，便于人工登录/验证")
+    run_parser.add_argument("--output", default="data/processed/fetched_papers.json", help="抓取结果保存路径")
     run_parser.add_argument("--profile", default="data/processed/profile.npy", help="兴趣向量路径")
     run_parser.add_argument("--threshold", type=float, default=0.5, help="LLM 分析触发阈值")
     run_parser.add_argument("--provider", default=None, help="LLM provider：deepseek/siliconflow/modelscope")
@@ -70,8 +77,12 @@ def main() -> None:
     run_parser.add_argument("--unpaywall-email", default=None, help="Unpaywall 查询邮箱，用于开放获取全文查找")
     run_parser.add_argument("--full-text-timeout", type=int, default=10, help="单次全文查找/下载请求超时秒数")
     run_parser.add_argument("--manual-pdf-dir", default=None, help="手动 PDF 兜底目录，按 DOI/标题匹配后用于全文解析")
+    run_parser.add_argument("--full-text-api-fallback", action="store_true", help="全文下载失败时启用开放获取/API 兜底来源")
+    run_parser.add_argument("--full-text-source", choices=["spis", "publisher", "auto"], default=None, help="全文获取来源；默认读取 FULL_TEXT_SOURCE，未配置时使用 spis")
 
     args = parser.parse_args()
+    if getattr(args, "full_text_source", None):
+        os.environ["FULL_TEXT_SOURCE"] = args.full_text_source
 
     if args.command == "build-profile":
         from pipeline.build_profile import build_profile
@@ -107,6 +118,7 @@ def main() -> None:
                 unpaywall_email=args.unpaywall_email,
                 full_text_timeout=args.full_text_timeout,
                 manual_pdf_dir=args.manual_pdf_dir,
+                full_text_api_fallback=args.full_text_api_fallback,
             )
         else:
             if not args.pdf:
@@ -125,8 +137,11 @@ def main() -> None:
             )
         print(f"分析结果已保存：{output_dir}")
     elif args.command == "fetch-papers":
-        from pipeline.fetch_papers import fetch_papers
+        from pipeline.fetch_papers import fetch_papers, reset_paper_library
 
+        if args.reset:
+            reset_paper_library()
+        progress = _console_progress
         papers = fetch_papers(
             since_date=args.since,
             max_emails=args.max_emails,
@@ -138,22 +153,28 @@ def main() -> None:
             use_browser=args.use_browser,
             browser_max_pages=args.browser_max_pages,
             browser_manual_login_wait_seconds=args.browser_manual_login_wait_seconds,
+            browser_headless=not args.browser_visible,
+            progress_callback=progress,
         )
         print(f"已获取论文 {len(papers)} 篇，保存到：{args.output}")
     elif args.command == "run":
         from pipeline.analyze_papers import analyze_papers
         from pipeline.fetch_papers import fetch_papers
 
+        progress = _console_progress
         papers = fetch_papers(
             since_date=args.since,
             max_emails=args.max_emails,
             no_web=args.no_web,
+            output_path=args.output,
             audit_output_path=args.audit_output,
             ignore_seen=args.ignore_seen,
             expand_alert_pages=args.expand_alert_pages,
             use_browser=args.use_browser,
             browser_max_pages=args.browser_max_pages,
             browser_manual_login_wait_seconds=args.browser_manual_login_wait_seconds,
+            browser_headless=not args.browser_visible,
+            progress_callback=progress,
         )
         output_dir = analyze_papers(
             papers=papers,
@@ -171,8 +192,13 @@ def main() -> None:
             unpaywall_email=args.unpaywall_email,
             full_text_timeout=args.full_text_timeout,
             manual_pdf_dir=args.manual_pdf_dir,
+            full_text_api_fallback=args.full_text_api_fallback,
         )
         print(f"分析结果已保存：{output_dir}")
+
+
+def _console_progress(message: str) -> None:
+    print(f"[进度] {message}", flush=True)
 
 
 if __name__ == "__main__":
