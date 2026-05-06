@@ -27,6 +27,7 @@ class SpisSearchResult:
     url: str
     doi: str | None = None
     download_url: str | None = None
+    article_index: int | None = None
 
 
 def resolve_via_spis(
@@ -38,11 +39,10 @@ def resolve_via_spis(
 ) -> FullTextResult:
     config = config or load_full_text_config()
     output_path = output_dir / safe_pdf_name(paper.title, index)
-    query = _spis_query(paper)
-    if not query:
+    if not _spis_queries(paper):
         return FullTextResult(success=False, source="spis_not_found", reason="SPIS search skipped: missing DOI and title")
 
-    logger.info("SPIS search: %s", query)
+    logger.info("SPIS search: %s", " | ".join(_spis_queries(paper)))
     direct_result = download_spis_direct_pdf(
         paper=paper,
         output_path=output_path,
@@ -50,8 +50,6 @@ def resolve_via_spis(
         title_match_threshold=config.spis_title_match_threshold,
     )
     if direct_result.success:
-        return direct_result
-    if direct_result.source == "spis_not_found":
         return direct_result
 
     email_config = email_config or load_email_config()
@@ -102,7 +100,7 @@ def parse_spis_search_results(html: str, base_url: str = "https://spis.hnlat.com
     soup = BeautifulSoup(html, "html.parser")
     results: list[SpisSearchResult] = []
     seen_urls: set[str] = set()
-    for article in soup.select("article"):
+    for article_index, article in enumerate(soup.select("article")):
         title_el = article.select_one(".d-t[title], .d-t")
         if title_el is None:
             continue
@@ -123,6 +121,7 @@ def parse_spis_search_results(html: str, base_url: str = "https://spis.hnlat.com
                 url=detail_or_source_url,
                 doi=_extract_doi(article.get_text(" ", strip=True)),
                 download_url=download_url,
+                article_index=article_index,
             )
         )
 
@@ -178,25 +177,32 @@ def submit_spis_request(
     except Exception as exc:
         raise RuntimeError(f"Playwright is unavailable: {exc}") from exc
 
-    query = _spis_query(paper)
-    if not query:
+    queries = _spis_queries(paper)
+    if not queries:
         return None, "not_found"
 
     with sync_playwright() as playwright:
         browser = playwright.chromium.launch(headless=False)
         try:
             page = browser.new_page()
-            page.goto(build_spis_search_url(query, base_url), wait_until="domcontentloaded", timeout=60000)
-            page.wait_for_timeout(1500)
-            results = parse_spis_search_results(page.content(), base_url=base_url)
-            selected = select_spis_result(paper, results, title_match_threshold=title_match_threshold)
-            if selected is None or not selected.url:
-                return None, "not_found"
-            logger.info("SPIS detail: %s", selected.url)
-            page.goto(selected.url, wait_until="domcontentloaded", timeout=60000)
-            page.wait_for_timeout(1500)
-            status = submit_spis_detail_form(page, recipient_email)
-            return selected.url, status
+            for query in queries:
+                page.goto(build_spis_search_url(query, base_url), wait_until="domcontentloaded", timeout=60000)
+                page.wait_for_timeout(1500)
+                results = parse_spis_search_results(page.content(), base_url=base_url)
+                selected = select_spis_result(paper, results, title_match_threshold=title_match_threshold)
+                if selected is None:
+                    continue
+                logger.info("SPIS delivery: %s", selected.title)
+                status = submit_spis_result_delivery_form(page, selected, recipient_email)
+                if status != "not_found":
+                    return selected.url, status
+                if selected.url:
+                    logger.info("SPIS detail fallback: %s", selected.url)
+                    page.goto(selected.url, wait_until="domcontentloaded", timeout=60000)
+                    page.wait_for_timeout(1500)
+                    status = submit_spis_detail_form(page, recipient_email)
+                    return selected.url, status
+            return None, "not_found"
         finally:
             browser.close()
 
@@ -216,8 +222,8 @@ def download_spis_direct_pdf(
     except Exception as exc:
         return FullTextResult(success=False, source="spis_direct_failed", reason=f"Playwright is unavailable: {exc}")
 
-    query = _spis_query(paper)
-    if not query:
+    queries = _spis_queries(paper)
+    if not queries:
         return FullTextResult(success=False, source="spis_not_found", reason="SPIS search skipped: missing DOI and title")
 
     with sync_playwright() as playwright:
@@ -225,29 +231,37 @@ def download_spis_direct_pdf(
         context = browser.new_context(accept_downloads=True, ignore_https_errors=True)
         page = context.new_page()
         try:
-            page.goto(build_spis_search_url(query, base_url), wait_until="domcontentloaded", timeout=timeout * 1000)
-            page.wait_for_timeout(1500)
-            results = parse_spis_search_results(page.content(), base_url=base_url)
-            selected = select_spis_result(paper, results, title_match_threshold=title_match_threshold)
-            if selected is None:
+            found_match = False
+            last_url = None
+            for query in queries:
+                page.goto(build_spis_search_url(query, base_url), wait_until="domcontentloaded", timeout=timeout * 1000)
+                page.wait_for_timeout(1500)
+                results = parse_spis_search_results(page.content(), base_url=base_url)
+                selected = select_spis_result(paper, results, title_match_threshold=title_match_threshold)
+                if selected is None:
+                    continue
+                found_match = True
+                if not selected.download_url:
+                    last_url = selected.url
+                    continue
+
+                target_url = _extract_download_target(selected.download_url) or selected.download_url
+                last_url = target_url
+                saved = _download_pdf_with_requests_stream(target_url, output_path, total_timeout=max(timeout, 600))
+                if saved:
+                    return FullTextResult(success=True, path=str(output_path), source="spis_direct", url=target_url)
+
+                saved = _download_pdf_with_playwright_request(context, target_url, output_path, timeout=timeout)
+                if saved:
+                    return FullTextResult(success=True, path=str(output_path), source="spis_direct", url=target_url)
+
+                saved = _download_pdf_by_browser_navigation(page, target_url, output_path, timeout=timeout)
+                if saved:
+                    return FullTextResult(success=True, path=str(output_path), source="spis_direct", url=target_url)
+
+            if not found_match:
                 return FullTextResult(success=False, source="spis_not_found", reason="SPIS did not find a safe matching result")
-            if not selected.download_url:
-                return FullTextResult(success=False, source="spis_no_direct_download", url=selected.url, reason="SPIS result has no direct download button")
-
-            target_url = _extract_download_target(selected.download_url) or selected.download_url
-            saved = _download_pdf_with_requests_stream(target_url, output_path, total_timeout=max(timeout, 600))
-            if saved:
-                return FullTextResult(success=True, path=str(output_path), source="spis_direct", url=target_url)
-
-            saved = _download_pdf_with_playwright_request(context, target_url, output_path, timeout=timeout)
-            if saved:
-                return FullTextResult(success=True, path=str(output_path), source="spis_direct", url=target_url)
-
-            saved = _download_pdf_by_browser_navigation(page, target_url, output_path, timeout=timeout)
-            if saved:
-                return FullTextResult(success=True, path=str(output_path), source="spis_direct", url=target_url)
-
-            return FullTextResult(success=False, source="spis_direct_failed", url=target_url, reason="SPIS direct download did not return a PDF")
+            return FullTextResult(success=False, source="spis_no_direct_download", url=last_url, reason="SPIS direct download unavailable or did not return a PDF")
         except Exception as exc:
             return FullTextResult(success=False, source="spis_direct_failed", reason=f"SPIS direct download failed: {exc}")
         finally:
@@ -259,7 +273,7 @@ def submit_spis_detail_form(page, recipient_email: str) -> str:
     if "已求助" in body_text or "已提交" in body_text:
         return "already_requested"
 
-    email_input = page.locator("input[placeholder='请输入文献接收邮箱'], input[type='email']").first
+    email_input = page.locator("input.email-input, input[placeholder*='邮箱'], input[type='email']").last
     if email_input.count() == 0:
         return "submit_failed"
     email_input.fill(recipient_email)
@@ -271,7 +285,7 @@ def submit_spis_detail_form(page, recipient_email: str) -> str:
         except Exception:
             checkbox.evaluate("el => { el.checked = true; el.dispatchEvent(new Event('change', { bubbles: true })); }")
 
-    button = page.locator("button.doc-delivery-btn, button:has-text('确认')").first
+    button = page.locator("button.modal-ok, button.doc-delivery-btn, button:has-text('确定'), button:has-text('确认')").last
     if button.count() == 0:
         return "submit_failed"
     button.click(timeout=15000)
@@ -283,6 +297,18 @@ def submit_spis_detail_form(page, recipient_email: str) -> str:
     if any(marker in text for marker in ("已求助", "请勿重复", "重复提交")):
         return "already_requested"
     return "submitted"
+
+
+def submit_spis_result_delivery_form(page, selected: SpisSearchResult, recipient_email: str) -> str:
+    article = _locate_spis_article(page, selected)
+    if article is None:
+        return "not_found"
+    delivery = article.locator(".action-button.delivery").first
+    if delivery.count() == 0:
+        return "not_found"
+    delivery.click(timeout=15000)
+    page.wait_for_timeout(1200)
+    return submit_spis_detail_form(page, recipient_email)
 
 
 def wait_for_spis_pdf_email(
@@ -330,6 +356,32 @@ def select_pdf_attachment_for_paper(
 
 def _spis_query(paper: FetchedPaper) -> str:
     return (_normalize_doi(paper.doi) or paper.title or "").strip()
+
+
+def _spis_queries(paper: FetchedPaper) -> list[str]:
+    values = [_normalize_doi(paper.doi), (paper.title or "").strip()]
+    queries: list[str] = []
+    for value in values:
+        if value and value not in queries:
+            queries.append(value)
+    return queries
+
+
+def _locate_spis_article(page, selected: SpisSearchResult):
+    articles = page.locator("article")
+    if selected.article_index is not None and selected.article_index < articles.count():
+        return articles.nth(selected.article_index)
+    wanted = normalize_title(selected.title)
+    for index in range(articles.count()):
+        article = articles.nth(index)
+        try:
+            title_el = article.locator(".d-t").first
+            title = title_el.get_attribute("title") or title_el.inner_text(timeout=1000)
+        except Exception:
+            title = ""
+        if wanted and normalize_title(_clean_spis_title(title)) == wanted:
+            return article
+    return None
 
 
 def _download_pdf_with_playwright_request(context, url: str, output_path: Path, timeout: int) -> bool:

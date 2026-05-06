@@ -1684,3 +1684,11 @@
 - 本地探测 SPIS 搜索页确认目标论文卡片存在“下载”按钮，链接指向 arXiv PDF。
 - 修复后真实小测：`Hybrid two-stage reconstruction of multiscale subsurface flow with physics-informed residual connected neural operator` 通过 SPIS 直接下载保存为 `data/debug/spis_direct/direct_resolver_fixed.pdf`，大小 4,923,079 字节，文件头为 `%PDF-1.7`。
 - 全量测试：`D:\software\anaconda\envs\paper-ai\python.exe -m pytest -q tests -p no:cacheprovider`，结果 `180 passed`。
+
+### 2026-05-06 继续修复
+- 用户再次完整运行后，30 篇进入全文下载的论文中只有 1 篇成功，失败集中在 `spis_not_found` 与 `spis_submit_failed`。
+- 排查发现：SPIS DOI 查询失败后没有退回标题查询；文献求助仍偏向旧详情页表单，未稳定支持搜索结果卡片中的“文献求助”弹窗。
+- 下一步改为：DOI/标题两级搜索；直接下载失败后，点击同一结果卡片的“文献求助”，填写邮箱、勾选服务条款并提交。
+- 修复后真实小测 1：`Hybrid two-stage reconstruction...` 仍可通过 SPIS 直接下载真实 PDF，大小 4,923,079 字节，文件头 `%PDF-1.7`。
+- 修复后真实小测 2：`Energy loss informed cell-based multilayer perceptron...` 这类无下载按钮的 SPIS 结果卡片可打开“文献求助”弹窗并成功提交，状态 `submitted`。
+- 全量测试：`D:\software\anaconda\envs\paper-ai\python.exe -m pytest -q tests -p no:cacheprovider`，结果 `180 passed`。

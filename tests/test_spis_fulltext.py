@@ -153,6 +153,7 @@ class FakeLocator:
         self.page = page
         self.kind = kind
         self.first = self
+        self.last = self
 
     def count(self):
         return 0 if self.kind == "missing" else 1
