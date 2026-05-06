@@ -19,6 +19,7 @@ from paper_analyzer.utils.logger import get_logger
 from paper_analyzer.utils.text import normalize_title
 
 logger = get_logger(__name__)
+DEFAULT_DIRECT_DOWNLOAD_SECONDS = 90
 
 
 @dataclass
@@ -247,7 +248,11 @@ def download_spis_direct_pdf(
 
                 target_url = _extract_download_target(selected.download_url) or selected.download_url
                 last_url = target_url
-                saved = _download_pdf_with_requests_stream(target_url, output_path, total_timeout=max(timeout, 600))
+                saved = _download_pdf_with_requests_stream(
+                    target_url,
+                    output_path,
+                    total_timeout=_direct_download_timeout(timeout),
+                )
                 if saved:
                     return FullTextResult(success=True, path=str(output_path), source="spis_direct", url=target_url)
 
@@ -421,7 +426,7 @@ def _looks_like_pdf(body: bytes, content_type: str) -> bool:
     return body[:1024].lstrip().startswith(b"%PDF")
 
 
-def _download_pdf_with_requests_stream(url: str, output_path: Path, total_timeout: int = 600) -> bool:
+def _download_pdf_with_requests_stream(url: str, output_path: Path, total_timeout: int = DEFAULT_DIRECT_DOWNLOAD_SECONDS) -> bool:
     tmp_path = output_path.with_suffix(output_path.suffix + ".part")
     deadline = time.monotonic() + max(30, total_timeout)
     try:
@@ -431,7 +436,7 @@ def _download_pdf_with_requests_stream(url: str, output_path: Path, total_timeou
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
                 "Accept": "application/pdf,*/*",
             },
-            timeout=(15, 45),
+            timeout=(10, 10),
             allow_redirects=True,
             stream=True,
         ) as response:
@@ -459,6 +464,10 @@ def _download_pdf_with_requests_stream(url: str, output_path: Path, total_timeou
                 tmp_path.unlink()
             except Exception:
                 pass
+
+
+def _direct_download_timeout(configured_timeout: int) -> int:
+    return max(30, min(DEFAULT_DIRECT_DOWNLOAD_SECONDS, max(1, configured_timeout) * 3))
 
 
 def _extract_download_target(download_url: str) -> str | None:

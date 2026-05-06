@@ -1692,3 +1692,8 @@
 - 修复后真实小测 1：`Hybrid two-stage reconstruction...` 仍可通过 SPIS 直接下载真实 PDF，大小 4,923,079 字节，文件头 `%PDF-1.7`。
 - 修复后真实小测 2：`Energy loss informed cell-based multilayer perceptron...` 这类无下载按钮的 SPIS 结果卡片可打开“文献求助”弹窗并成功提交，状态 `submitted`。
 - 全量测试：`D:\software\anaconda\envs\paper-ai\python.exe -m pytest -q tests -p no:cacheprovider`，结果 `180 passed`。
+
+### 2026-05-06 继续修复：SPIS 直接下载流卡住
+- 用户反馈最新运行卡在第一篇论文。检查发现当前输出目录 `data/outputs/20260506_201701` 只有 `papers/01_...pdf.part`，且大小为 0 字节，说明旧代码卡在 SPIS 直接下载流。
+- 将 SPIS 直接下载流改为短超时：连接/读超时 10 秒，总下载预算最多 90 秒；超时后删除 `.part` 并回退文献求助。
+- 真实小测：第一篇 `Hybrid two-stage reconstruction...` 在新保护下可保存 4,923,079 字节 PDF，文件头 `%PDF-1.7`，无残留 `.part`。
