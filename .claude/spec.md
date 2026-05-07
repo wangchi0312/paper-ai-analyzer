@@ -1,5 +1,13 @@
 # Academic Paper AI Analyzer V1/V2 Spec
 
+## 2026-05-07 V2 启动体验补充
+
+1. Windows 本地使用场景下，项目默认应提供一键启动入口，避免用户每次手动分别启动 FastAPI 与 Vite。
+2. 一键启动优先采用简单可维护方案：根目录批处理脚本启动后端、前端，并自动打开浏览器到默认地址。
+3. 启动脚本必须优先使用项目约定的 Conda 环境 Python：`D:\software\anaconda\envs\paper-ai\python.exe`。
+4. 启动脚本需要在依赖缺失时给出清晰提示，例如 `frontend/node_modules` 不存在或 Python 路径不存在，而不是静默失败。
+5. README 需要同步提供“一键启动”和“手动启动”两种方式。
+
 ## 2026-05-07 V2 体验修订（聊天工作台）
 
 1. React/FastAPI 主界面继续沿用 chat-first，但布局调整为：左侧为对话导航和高频能力提示，中间为聊天主工作区，右侧为用户配置；左侧不再暴露内部工具细节。

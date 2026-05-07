@@ -2,6 +2,32 @@
 
 ## 2026-05-07
 
+### 改进：补充一键启动入口
+### 做了什么
+- 根据用户最新反馈，准备为 React/FastAPI 版本补充 Windows 下一键启动脚本，减少手动打开两个终端分别启动前后端的成本。
+- 计划同时补充依赖缺失提示与 README 启动说明，保证脚本失败时用户知道下一步该做什么。
+
+### 为什么
+- 当前主界面虽然已经切到聊天式产品形态，但启动体验仍然偏开发者视角，要求用户手动跑后端命令和前端命令，门槛偏高。
+- 用户明确表达“运行太麻烦”，因此需要把高频启动路径收敛成可双击的入口。
+
+### 影响文件计划
+- `.claude/spec.md`
+- `.claude/worklog.md`
+- `README.md`
+- `start_academic_agent.bat`
+- `stop_academic_agent.bat`
+- `stop_academic_agent.ps1`
+
+### 落地结果
+- 新增 `start_academic_agent.bat`：双击即可启动后端、前端并自动打开浏览器。
+- 新增 `stop_academic_agent.bat` + `stop_academic_agent.ps1`：双击即可停止当前项目相关的 FastAPI/Vite 进程。
+- README 已补充“一键启动 / 停止 / 手动启动”说明。
+
+### 验证结果
+- 真实执行 `cmd /c start_academic_agent.bat`：成功拉起 `paper_analyzer.server` 后端进程与 `vite --host 127.0.0.1 --port 5173` 前端进程。
+- 真实执行 `cmd /c stop_academic_agent.bat`：成功停止上述 Python/Node 进程。
+
 ### 改进：React/FastAPI 聊天界面二次打磨
 ### 做了什么
 - 停止了当前运行中的 FastAPI 与 Vite 进程，避免一边改代码一边被旧界面干扰。
