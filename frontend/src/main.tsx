@@ -35,8 +35,45 @@ const capabilityHints = [
   "整理阶段性研究笔记",
 ];
 
+type ConfigDraft = Record<string, unknown>;
+
+function buildDraft(config: AppConfig): ConfigDraft {
+  return {
+    email_address: config.email_address,
+    email_provider: config.email_provider,
+    email_auth_code: "",
+    llm_provider: config.llm_provider,
+    llm_api_key: "",
+    llm_base_url: config.llm_base_url,
+    llm_model: config.llm_model,
+    llm_temperature: config.llm_temperature,
+    research_topic: config.research_topic,
+    wos_use_browser: config.wos_use_browser,
+    wos_max_emails: config.wos_max_emails,
+    wos_browser_max_pages: config.wos_browser_max_pages,
+  };
+}
+
+function normalizeDraft(draft: ConfigDraft): string {
+  return JSON.stringify({
+    email_address: String(draft.email_address ?? "").trim(),
+    email_provider: String(draft.email_provider ?? "").trim(),
+    llm_provider: String(draft.llm_provider ?? "").trim(),
+    llm_base_url: String(draft.llm_base_url ?? "").trim(),
+    llm_model: String(draft.llm_model ?? "").trim(),
+    llm_temperature: String(draft.llm_temperature ?? "").trim(),
+    research_topic: String(draft.research_topic ?? "").trim(),
+    wos_use_browser: Boolean(draft.wos_use_browser),
+    wos_max_emails: Number(draft.wos_max_emails ?? 20),
+    wos_browser_max_pages: Number(draft.wos_browser_max_pages ?? 20),
+    has_email_auth_code: Boolean(String(draft.email_auth_code ?? "").trim()),
+    has_llm_api_key: Boolean(String(draft.llm_api_key ?? "").trim()),
+  });
+}
+
 function App() {
   const [config, setConfig] = useState<AppConfig | null>(null);
+  const [configDraft, setConfigDraft] = useState<ConfigDraft | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([initialMessage]);
   const [input, setInput] = useState("");
   const [file, setFile] = useState<File | null>(null);
@@ -46,7 +83,12 @@ function App() {
   const bottomRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
-    getConfig().then(setConfig).catch((error) => appendAssistant(`读取配置失败：${error.message}`));
+    getConfig()
+      .then((data) => {
+        setConfig(data);
+        setConfigDraft(buildDraft(data));
+      })
+      .catch((error) => appendAssistant(`读取配置失败：${error.message}`));
   }, []);
 
   useEffect(() => {
@@ -57,6 +99,11 @@ function App() {
     const firstUser = messages.find((item) => item.role === "user");
     return firstUser ? firstUser.content.slice(0, 18) || "当前对话" : "新对话";
   }, [messages]);
+
+  const configDirty = useMemo(() => {
+    if (!config || !configDraft) return false;
+    return normalizeDraft(configDraft) !== normalizeDraft(buildDraft(config));
+  }, [config, configDraft]);
 
   function appendAssistant(content: string, extra?: Partial<ChatMessage>) {
     setMessages((items) => [...items, { id: crypto.randomUUID(), role: "assistant", content, ...extra }]);
@@ -73,11 +120,23 @@ function App() {
     setActiveJobId(null);
   }
 
+  async function ensureLatestConfig(options?: { silent?: boolean }): Promise<void> {
+    if (!configDraft || !configDirty) return;
+    const silent = Boolean(options?.silent);
+    if (!silent) {
+      appendAssistant("我先同步右侧最新配置，再继续本次动作。");
+    }
+    const saved = await saveConfig(configDraft);
+    setConfig(saved);
+    setConfigDraft(buildDraft(saved));
+  }
+
   async function handleSend() {
     const text = input.trim();
     if (!text && !file) return;
     setSending(true);
     try {
+      await ensureLatestConfig({ silent: true });
       setInput("");
       if (file) {
         appendUser(`上传 PDF：${file.name}${text ? `\n\n附言：${text}` : ""}`);
@@ -108,9 +167,7 @@ function App() {
   async function confirmAction(messageId: string, action: PendingAction) {
     setMessages((items) =>
       items.map((item) =>
-        item.id === messageId
-          ? { ...item, pendingAction: null, content: `${item.content}\n\n已开始执行。` }
-          : item,
+        item.id === messageId ? { ...item, pendingAction: null, content: `${item.content}\n\n已开始执行。` } : item,
       ),
     );
     try {
@@ -163,12 +220,14 @@ function App() {
     };
   }
 
-  async function handleSaveConfig(next: Record<string, unknown>) {
+  async function handleSaveConfig() {
+    if (!configDraft) return;
     setSaving(true);
     try {
-      const saved = await saveConfig(next);
+      const saved = await saveConfig(configDraft);
       setConfig(saved);
-      appendAssistant("配置已保存到本地 .env。密钥只保存在你的机器上，不会提交到 Git。");
+      setConfigDraft(buildDraft(saved));
+      appendAssistant("配置已保存到本地 .env。你眼前的设置也会直接用于后续任务。");
     } catch (error) {
       appendAssistant(`配置保存失败：${(error as Error).message}`);
     } finally {
@@ -280,7 +339,16 @@ function App() {
       </main>
 
       <aside className="settings-panel-wrap">
-        {config && <SettingsPanel config={config} saving={saving} onSave={handleSaveConfig} />}
+        {config && configDraft && (
+          <SettingsPanel
+            config={config}
+            draft={configDraft}
+            dirty={configDirty}
+            saving={saving}
+            onChange={setConfigDraft}
+            onSave={handleSaveConfig}
+          />
+        )}
       </aside>
     </div>
   );
@@ -288,46 +356,20 @@ function App() {
 
 function SettingsPanel({
   config,
+  draft,
+  dirty,
   saving,
+  onChange,
   onSave,
 }: {
   config: AppConfig;
+  draft: ConfigDraft;
+  dirty: boolean;
   saving: boolean;
-  onSave: (data: Record<string, unknown>) => void;
+  onChange: (next: ConfigDraft) => void;
+  onSave: () => void;
 }) {
-  const [draft, setDraft] = useState<Record<string, unknown>>({
-    email_address: config.email_address,
-    email_provider: config.email_provider,
-    email_auth_code: "",
-    llm_provider: config.llm_provider,
-    llm_api_key: "",
-    llm_base_url: config.llm_base_url,
-    llm_model: config.llm_model,
-    llm_temperature: config.llm_temperature,
-    research_topic: config.research_topic,
-    wos_use_browser: config.wos_use_browser,
-    wos_max_emails: config.wos_max_emails,
-    wos_browser_max_pages: config.wos_browser_max_pages,
-  });
-
-  useEffect(() => {
-    setDraft({
-      email_address: config.email_address,
-      email_provider: config.email_provider,
-      email_auth_code: "",
-      llm_provider: config.llm_provider,
-      llm_api_key: "",
-      llm_base_url: config.llm_base_url,
-      llm_model: config.llm_model,
-      llm_temperature: config.llm_temperature,
-      research_topic: config.research_topic,
-      wos_use_browser: config.wos_use_browser,
-      wos_max_emails: config.wos_max_emails,
-      wos_browser_max_pages: config.wos_browser_max_pages,
-    });
-  }, [config]);
-
-  const update = (key: string, value: unknown) => setDraft((data) => ({ ...data, [key]: value }));
+  const update = (key: string, value: unknown) => onChange({ ...draft, [key]: value });
 
   return (
     <div className="settings-panel">
@@ -375,7 +417,7 @@ function SettingsPanel({
         <h3><Bot size={16} /> LLM</h3>
         <label>
           <span>Provider</span>
-          <select value={String(draft.llm_provider)} onChange={(e) => update("llm_provider", e.target.value)}>
+          <select value={String(draft.llm_provider ?? "deepseek")} onChange={(e) => update("llm_provider", e.target.value)}>
             <option value="deepseek">DeepSeek</option>
             <option value="siliconflow">SiliconFlow</option>
             <option value="modelscope">ModelScope</option>
@@ -413,7 +455,7 @@ function SettingsPanel({
           <span>最多读取多少封 WoS 邮件</span>
           <input
             type="number"
-            value={Number(draft.wos_max_emails)}
+            value={Number(draft.wos_max_emails ?? 20)}
             onChange={(e) => update("wos_max_emails", Number(e.target.value))}
             min={1}
             max={500}
@@ -423,7 +465,7 @@ function SettingsPanel({
           <span>浏览器模式最多处理多少页 WoS 结果</span>
           <input
             type="number"
-            value={Number(draft.wos_browser_max_pages)}
+            value={Number(draft.wos_browser_max_pages ?? 20)}
             onChange={(e) => update("wos_browser_max_pages", Number(e.target.value))}
             min={1}
             max={50}
@@ -439,11 +481,13 @@ function SettingsPanel({
         </label>
       </section>
 
-      <button className="save-button" type="button" onClick={() => onSave(draft)} disabled={saving}>
+      <button className="save-button" type="button" onClick={onSave} disabled={saving}>
         {saving ? <Loader2 className="spin" size={16} /> : <Save size={16} />}
-        保存到 .env
+        {dirty ? "保存到 .env（有未保存改动）" : "保存到 .env"}
       </button>
-      <p className="hint">保存后会写入本地 .env。该文件已被 Git 忽略，但仍然属于本机明文配置。</p>
+      <p className="hint">
+        这里的修改会自动用于下一次对话执行；点击按钮会把它们长期写入本地 .env。
+      </p>
     </div>
   );
 }
