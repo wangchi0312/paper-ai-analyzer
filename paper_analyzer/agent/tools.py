@@ -12,11 +12,15 @@ from paper_analyzer.data.schema import FetchedPaper
 from paper_analyzer.embedding.embedder import Embedder
 from paper_analyzer.embedding.similarity import cosine_similarity
 from paper_analyzer.ingestion.email_reader import fetch_wos_emails_with_stats
+from paper_analyzer.ingestion.metadata_enricher import enrich_paper_metadata
+from paper_analyzer.ingestion.wos_browser import WosBrowserSession
 from paper_analyzer.ingestion.wos_parser import extract_alert_summary_links, parse_wos_email
 from paper_analyzer.llm.analyzer import Analyzer
 from paper_analyzer.pdf.parser import extract_text, extract_title
 from paper_analyzer.pdf.text_selector import select_representative_text
 from paper_analyzer.report.writer import write_outputs
+from paper_analyzer.utils.text import emit_progress
+from pipeline.fetch_papers import fetch_papers
 
 
 @dataclass
@@ -62,17 +66,20 @@ def analyze_pdf_tool(
     llm_max_chars: int = 12000,
     write_memory: bool = False,
     output_root: str = "data/outputs",
+    progress_callback: Callable[[str], None] | None = None,
 ) -> ToolResult:
     started_at = utc_now_iso()
     try:
         path = Path(pdf_path)
         if not path.exists():
             raise FileNotFoundError(f"PDF 不存在：{path}")
+        emit_progress(progress_callback, f"开始提取 PDF 文本：{path.name}")
         full_text = extract_text(str(path))
         selected_text, abstract = select_representative_text(full_text, max_chars=4000)
         if not selected_text:
             raise ValueError("无法从 PDF 中提取可用于解读的文本")
 
+        emit_progress(progress_callback, "调用 LLM 进行论文解读")
         analysis = Analyzer(provider=provider).analyze(full_text[:llm_max_chars], research_topic=research_topic)
         title = analysis.paper_title if analysis.paper_title and analysis.paper_title != "未识别" else extract_title(str(path))
         paper = _paper_from_analysis(title=title, pdf_path=str(path), abstract=abstract, full_text=full_text, analysis=analysis)
@@ -80,6 +87,7 @@ def analyze_pdf_tool(
 
         wrote_memory = False
         if write_memory:
+            emit_progress(progress_callback, "写入论文记忆")
             memory.add_paper(
                 text=f"{title}\n\n{abstract or selected_text[:1200]}\n\n{analysis.core_problem}\n{analysis.relevance_to_my_research}",
                 metadata={
@@ -93,6 +101,7 @@ def analyze_pdf_tool(
             )
             wrote_memory = True
 
+        emit_progress(progress_callback, f"PDF 解读完成：{title}")
         return ToolResult(
             tool_name="analyze_pdf_tool",
             ok=True,
@@ -118,28 +127,57 @@ def screen_wos_alert_tool(
     since_date: str | None = None,
     max_emails: int = 20,
     top_k: int = 10,
-    use_web: bool = False,
+    use_web: bool = True,
+    use_browser: bool = True,
+    browser_max_pages: int = 20,
+    browser_manual_login_wait_seconds: int = 0,
     profile_path: str = "data/processed/profile.npy",
     model_name: str = "all-MiniLM-L6-v2",
     write_memory: bool = False,
+    progress_callback: Callable[[str], None] | None = None,
 ) -> ToolResult:
     started_at = utc_now_iso()
     try:
-        emails, stats, _hit_seen_alert = fetch_wos_emails_with_stats(
-            since_date=since_date,
-            max_emails=max_emails,
-            ignore_seen=True,
-        )
-        papers: list[FetchedPaper] = []
-        alert_links = 0
-        for message_id, _subject, html in emails:
-            papers.extend(parse_wos_email(html, source_email_id=message_id))
-            if use_web:
+        emit_progress(progress_callback, "开始读取 WoS Alert 邮件")
+        if use_web:
+            papers = fetch_papers(
+                since_date=since_date,
+                max_emails=max_emails,
+                no_web=False,
+                ignore_seen=True,
+                expand_alert_pages=True,
+                use_browser=use_browser,
+                browser_max_pages=browser_max_pages,
+                browser_manual_login_wait_seconds=browser_manual_login_wait_seconds,
+                browser_headless=not use_browser,
+                progress_callback=progress_callback,
+            )
+            stats: dict[str, Any] = {}
+            alert_links = 0
+        else:
+            emails, stats, _hit_seen_alert = fetch_wos_emails_with_stats(
+                since_date=since_date,
+                max_emails=max_emails,
+                ignore_seen=True,
+            )
+            papers = []
+            alert_links = 0
+            for message_id, _subject, html in emails:
+                papers.extend(parse_wos_email(html, source_email_id=message_id))
                 alert_links += len(extract_alert_summary_links(html))
 
+        emit_progress(progress_callback, f"开始计算 {len(papers)} 篇候选论文的推荐分")
         ranked = _rank_fetched_papers(papers, top_k=top_k, profile_path=profile_path, model_name=model_name)
+        _enrich_recommendation_dois(
+            ranked,
+            use_browser=use_browser,
+            browser_max_pages=browser_max_pages,
+            browser_manual_login_wait_seconds=browser_manual_login_wait_seconds,
+            progress_callback=progress_callback,
+        )
         wrote_memory = False
         if write_memory:
+            emit_progress(progress_callback, "写入 WoS 候选论文记忆")
             for item in ranked:
                 paper = item["paper"]
                 memory.add_paper(
@@ -157,14 +195,26 @@ def screen_wos_alert_tool(
         recommendations = [
             {
                 "title": item["paper"].title,
-                "doi": item["paper"].doi,
-                "venue": item["paper"].venue,
+                "doi": item["paper"].doi or "",
+                "authors": item["paper"].authors or "",
+                "venue": item["paper"].venue or "",
+                "abstract": item["paper"].abstract or "",
+                "link": item["paper"].link or "",
+                "publisher_link": item["paper"].publisher_link or "",
+                "wos_summary_url": item["paper"].wos_summary_url or "",
                 "score": item["score"],
                 "reason": _recommendation_reason(item["paper"], item["score"]),
-                "manual_pdf_advice": "建议用户手动下载 PDF 后上传给 Agent 深读。",
+                "doi_source": _recommendation_doi_source(item["paper"]),
+                "doi_status": "found" if item["paper"].doi else "missing",
+                "manual_pdf_advice": "建议手动下载 PDF 后上传给 Agent 深读。",
+                "missing": {
+                    "doi": not bool(item["paper"].doi),
+                    "abstract": not bool((item["paper"].abstract or "").strip()),
+                },
             }
             for item in ranked
         ]
+        emit_progress(progress_callback, f"筛选完成：候选 {len(papers)} 篇，推荐 {len(recommendations)} 篇")
         return ToolResult(
             tool_name="screen_wos_alert_tool",
             ok=True,
@@ -320,7 +370,80 @@ def _recommendation_reason(paper: FetchedPaper, score: float) -> str:
         return f"与当前兴趣向量相似度为 {score:.3f}，摘要主题值得进一步核对。"
     if paper.abstract:
         return "尚未构建兴趣向量，先基于 WoS 摘要列为候选。"
-    return "缺少摘要，建议先打开记录确认是否值得下载。"
+    return "缺少摘要，建议先打开 WoS 记录确认是否值得下载。"
+
+
+def _enrich_recommendation_dois(
+    ranked: list[dict[str, Any]],
+    use_browser: bool,
+    browser_max_pages: int,
+    browser_manual_login_wait_seconds: int,
+    progress_callback: Callable[[str], None] | None,
+) -> None:
+    missing = [item["paper"] for item in ranked if not (item["paper"].doi or "").strip()]
+    if not missing:
+        return
+
+    emit_progress(progress_callback, f"推荐结果中有 {len(missing)} 篇缺 DOI，开始定向补全")
+
+    browser_session: WosBrowserSession | None = None
+    browser_context: WosBrowserSession | None = None
+    try:
+        if use_browser:
+            browser_context = WosBrowserSession(
+                max_pages=max(1, browser_max_pages),
+                headless=False,
+                manual_login_wait_seconds=browser_manual_login_wait_seconds,
+            )
+            browser_session = browser_context.__enter__()
+
+        for paper in missing:
+            title = paper.title or "未命名论文"
+            if browser_session is not None and paper.link and "full-record" in (paper.link or "").lower():
+                before_doi = paper.doi
+                try:
+                    emit_progress(progress_callback, f"为推荐论文补 DOI：{title}")
+                    browser_session.enrich_paper_from_full_record(paper)
+                except Exception as exc:
+                    emit_progress(progress_callback, f"Full Record DOI 补全失败：{title} ({exc})")
+                else:
+                    if paper.doi and paper.doi != before_doi:
+                        _append_fetch_method_tag(paper, "full_record")
+                        emit_progress(progress_callback, f"已从 Full Record 补到 DOI：{title}")
+                        continue
+
+            try:
+                before_doi = paper.doi
+                enrich_paper_metadata(paper)
+                if paper.doi and paper.doi != before_doi:
+                    emit_progress(progress_callback, f"已从公开元数据补到 DOI：{title}")
+                elif not paper.doi:
+                    emit_progress(progress_callback, f"仍未补到 DOI：{title}")
+            except Exception as exc:
+                emit_progress(progress_callback, f"公开元数据 DOI 补全失败：{title} ({exc})")
+    finally:
+        if browser_context is not None:
+            browser_context.__exit__(None, None, None)
+
+
+def _append_fetch_method_tag(paper: FetchedPaper, tag: str) -> None:
+    current = (paper.fetch_method or "").split("+") if paper.fetch_method else []
+    if tag not in current:
+        paper.fetch_method = "+".join([*current, tag]) if current else tag
+
+
+def _recommendation_doi_source(paper: FetchedPaper) -> str:
+    if not (paper.doi or "").strip():
+        return "missing"
+    methods = set(filter(None, (paper.fetch_method or "").split("+")))
+    if "full_record" in methods:
+        return "full_record"
+    for source in ("crossref", "openalex", "semantic_scholar"):
+        if source in methods:
+            return source
+    if methods & {"wos_browser", "web", "email"}:
+        return "wos"
+    return "unknown"
 
 
 def _paper_from_analysis(title, pdf_path, abstract, full_text, analysis):

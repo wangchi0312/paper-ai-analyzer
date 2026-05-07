@@ -36,6 +36,8 @@ export type Job = {
 export type Recommendation = {
   title: string;
   doi: string;
+  doi_source?: string;
+  doi_status?: string;
   authors: string;
   venue: string;
   abstract: string;

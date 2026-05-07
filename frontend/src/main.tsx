@@ -589,6 +589,11 @@ function RecommendationList({ items }: { items: Recommendation[] }) {
             )}
           </div>
 
+          <div className="field-row">
+            <b>DOI 来源</b>
+            <span>{labelDoiSource(item)}</span>
+          </div>
+
           <div className="field-row stacked">
             <b>推荐理由</b>
             <span>{item.reason}</span>
@@ -630,6 +635,24 @@ function RecommendationList({ items }: { items: Recommendation[] }) {
 function extractRecommendations(result?: ToolResult | null): Recommendation[] {
   const raw = result?.data?.recommendations;
   return Array.isArray(raw) ? (raw as Recommendation[]) : [];
+}
+
+function labelDoiSource(item: Recommendation): string {
+  if (!item.doi) return "未补全成功";
+  switch (item.doi_source) {
+    case "wos":
+      return "WoS";
+    case "full_record":
+      return "WoS Full Record";
+    case "crossref":
+      return "Crossref";
+    case "openalex":
+      return "OpenAlex";
+    case "semantic_scholar":
+      return "Semantic Scholar";
+    default:
+      return "未知来源";
+  }
 }
 
 function updateJobStatus(items: ChatMessage[], messageId: string, status: Job["status"] | "cancelling"): ChatMessage[] {

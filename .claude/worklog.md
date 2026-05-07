@@ -2,6 +2,26 @@
 
 ## 2026-05-07
 
+### 改进：对推荐结果做定向 DOI 补全并展示来源
+### 做了什么
+- 根据用户反馈“WoS 肯定提供 DOI，为什么推荐卡片里显示未获取到”，重新核对本次抓取产物与历史运行产物。
+- 确认当前抓取阶段优先保证摘要筛选，不会为每篇结果都打开 Full Record；因此一部分论文虽然在 WoS 中有 DOI，但这轮没有被稳定抓回。
+- 准备把 DOI 强保障从“全量抓取阶段”挪到“最终推荐结果阶段”：先完成筛选排序，再只对最终推荐且缺 DOI 的论文执行定向补全。
+- 同时在推荐结果中增加 DOI 来源/状态字段，减少“未获取到”这类不透明展示。
+### 为什么
+- 用户真正关心的是“推荐给我的这几篇能不能直接拿 DOI 去下载”，而不是所有候选在抓取期是否 100% 补齐元数据。
+- 对 top-k 小集合补 DOI，可以显著提升结果可用性，又不会把流程重新拖回逐篇 Full Record 扫描。
+### 影响文件计划
+- `.claude/spec.md`
+- `.claude/worklog.md`
+- `paper_analyzer/agent/tools.py`
+- `paper_analyzer/ingestion/wos_browser.py`
+- `frontend/src/types.ts`
+- `frontend/src/main.tsx`
+- `tests/test_wos_recommendations.py`
+### 验证结果
+- `D:\software\anaconda\envs\paper-ai\python.exe -m pytest -q tests/test_wos_recommendations.py tests/test_server_app.py tests/test_fetch_papers.py -p no:cacheprovider --basetemp data\outputs\test_tmp\pytest_tmp_doi_enrich`
+- 结果：`21 passed`
 ### 修复：`EMAIL_PROVIDER=auto` 导致 WoS 邮箱读取失败
 ### 做了什么
 - 根据用户指出的真实报错“`不支持的邮箱运营商：auto`”回看输出链路，确认失败点在邮箱配置加载，而不是 WoS 页面抓取。
