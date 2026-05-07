@@ -16,6 +16,22 @@ def test_server_chat_returns_pending_action_for_wos_request():
     assert "封 WoS Alert 邮件" in data["message"]
 
 
+def test_server_chat_uses_current_wos_limits(monkeypatch):
+    monkeypatch.setenv("WOS_MAX_EMAILS", "2")
+    monkeypatch.setenv("WOS_BROWSER_MAX_PAGES", "2")
+    monkeypatch.setenv("WOS_USE_BROWSER", "true")
+    client = TestClient(create_app())
+
+    response = client.post("/api/chat", json={"message": "帮我筛选 WoS 邮件"})
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["pending_action"]["tool_name"] == "screen_wos_alert_tool"
+    assert data["pending_action"]["args"]["max_emails"] == 2
+    assert data["pending_action"]["args"]["browser_max_pages"] == 2
+    assert "最多 2 封 WoS Alert 邮件" in data["message"]
+
+
 def test_server_upload_rejects_non_pdf():
     client = TestClient(create_app())
 

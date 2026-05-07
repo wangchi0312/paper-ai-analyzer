@@ -9,6 +9,7 @@ from paper_analyzer.agent.tools import ToolRegistry, build_default_registry, log
 
 
 CONFIRM_WORDS = {"确认", "执行", "开始", "同意", "可以", "yes", "y", "ok"}
+REJECT_WORDS = {"取消", "不要", "先不", "否", "no", "n"}
 
 
 class AcademicAgent:
@@ -33,30 +34,7 @@ class AcademicAgent:
 
         intent = self._detect_intent(text)
         if intent == "screen_wos":
-            wos_use_browser = _env_bool("WOS_USE_BROWSER", True)
-            wos_max_emails = _env_int("WOS_MAX_EMAILS", 20)
-            wos_browser_max_pages = _env_int("WOS_BROWSER_MAX_PAGES", 20)
-            action = PendingAction(
-                tool_name="screen_wos_alert_tool",
-                args={
-                    "max_emails": wos_max_emails,
-                    "top_k": 10,
-                    "use_web": True,
-                    "use_browser": wos_use_browser,
-                    "browser_max_pages": wos_browser_max_pages,
-                    "write_memory": False,
-                },
-                summary=(
-                    f"我将读取默认邮箱中最近最多 {wos_max_emails} 封 WoS Alert 邮件，"
-                    f"{'并尝试进入 WoS 完整结果页补全摘要、DOI 和链接' if wos_use_browser else '只基于邮件内容做初筛'}。"
-                    f"{' 浏览器模式下最多处理  ' + str(wos_browser_max_pages) + ' 页结果。' if wos_use_browser else ''}"
-                    " 这次不会下载 PDF，也不会写入长期记忆。"
-                ),
-            )
-            return AgentResponse(
-                f"{action.summary}\n\n点击确认后我会在后台执行，并持续输出工作日志。",
-                pending_action=action,
-            )
+            return self._build_wos_response()
         if intent == "search_memory":
             query = _strip_memory_prefix(text)
             action = PendingAction(
@@ -123,16 +101,47 @@ class AcademicAgent:
             return AgentResponse(format_tool_success(result), tool_result=result)
         return AgentResponse(f"{result.message}：{result.error or '未知错误'}", tool_result=result)
 
+    def _build_wos_response(self) -> AgentResponse:
+        wos_use_browser = _env_bool("WOS_USE_BROWSER", True)
+        wos_max_emails = _env_int("WOS_MAX_EMAILS", 20)
+        wos_browser_max_pages = _env_int("WOS_BROWSER_MAX_PAGES", 20)
+        action = PendingAction(
+            tool_name="screen_wos_alert_tool",
+            args={
+                "max_emails": wos_max_emails,
+                "top_k": 10,
+                "use_web": True,
+                "use_browser": wos_use_browser,
+                "browser_max_pages": wos_browser_max_pages,
+                "write_memory": False,
+            },
+            summary=(
+                f"我将读取默认邮箱中最近最多 {wos_max_emails} 封 WoS Alert 邮件，"
+                f"{'并尝试进入 WoS 完整结果页补全摘要、DOI 和链接' if wos_use_browser else '只基于邮件内容做初筛'}。"
+                f"{' 浏览器模式下最多处理 ' + str(wos_browser_max_pages) + ' 页结果。' if wos_use_browser else ''}"
+                " 这次不会下载 PDF，也不会写入长期记忆。"
+            ),
+        )
+        return AgentResponse(
+            f"{action.summary}\n\n点击确认后我会在后台执行，并持续输出工作日志。",
+            pending_action=action,
+        )
+
     def _detect_intent(self, text: str) -> str:
         lower_text = text.lower()
-        if any(key in lower_text for key in ("wos", "alert")) or ("筛选" in text and "邮件" in text):
-            if any(key in text for key in ("文献", "论文", "邮件", "筛选")):
-                return "screen_wos"
-        if any(key in text for key in ("检索", "查找", "搜索", "记忆", "历史")):
+        is_wos_message = (
+            "wos" in lower_text
+            or "alert" in lower_text
+            or ("筛选" in text and "邮件" in text)
+            or ("wos" in lower_text and "筛选" in text)
+        )
+        if is_wos_message and any(keyword in text for keyword in ("文献", "论文", "邮件", "筛选")):
+            return "screen_wos"
+        if any(keyword in text for keyword in ("检索", "查找", "搜索", "记忆", "历史")):
             return "search_memory"
-        if any(key in text for key in ("记住", "以后", "我关注", "我不关注", "不推荐", "很相关", "不相关")):
+        if any(keyword in text for keyword in ("记住", "以后", "我关注", "我不关注", "不推荐", "很相关", "不相关")):
             return "update_memory"
-        if any(key in text for key in ("报告", "总结", "整理成")):
+        if any(keyword in text for keyword in ("报告", "总结", "整理成")):
             return "generate_report"
         return "chat"
 
@@ -169,7 +178,7 @@ def format_tool_success(result) -> str:
 
 
 def _looks_like_rejection(text: str) -> bool:
-    return text.strip().lower() in {"取消", "不要", "先不", "否", "no", "n"}
+    return text.strip().lower() in REJECT_WORDS
 
 
 def _strip_memory_prefix(text: str) -> str:
@@ -180,13 +189,13 @@ def _strip_memory_prefix(text: str) -> str:
 
 
 def _feedback_memory_type(text: str) -> str:
-    if any(key in text for key in ("不关注", "不推荐", "不相关", "排除")):
+    if any(keyword in text for keyword in ("不关注", "不推荐", "不相关", "排除")):
         return "negative_interest"
-    if any(key in text for key in ("方法", "模型", "算法")):
+    if any(keyword in text for keyword in ("方法", "模型", "算法")):
         return "method_preference"
-    if any(key in text for key in ("写作", "表达", "报告")):
+    if any(keyword in text for keyword in ("写作", "表达", "报告")):
         return "writing_preference"
-    if any(key in text for key in ("目标", "课题", "方向")):
+    if any(keyword in text for keyword in ("目标", "课题", "方向")):
         return "research_goal"
     return "positive_interest"
 
