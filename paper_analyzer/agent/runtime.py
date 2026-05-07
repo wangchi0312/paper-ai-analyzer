@@ -1,7 +1,7 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
-from typing import Any
 
 from paper_analyzer.agent.memory import AcademicMemory
 from paper_analyzer.agent.state import AgentResponse, PendingAction
@@ -29,16 +29,34 @@ class AcademicAgent:
         if pending_action and text.lower() in CONFIRM_WORDS:
             return self.execute(pending_action)
         if pending_action and _looks_like_rejection(text):
-            return AgentResponse("好的，我已取消这次动作。你可以继续告诉我下一步想做什么。")
+            return AgentResponse("好的，我先取消这次动作。我们可以换个方向继续。")
 
         intent = self._detect_intent(text)
         if intent == "screen_wos":
+            wos_use_browser = _env_bool("WOS_USE_BROWSER", True)
+            wos_max_emails = _env_int("WOS_MAX_EMAILS", 20)
+            wos_browser_max_pages = _env_int("WOS_BROWSER_MAX_PAGES", 20)
             action = PendingAction(
                 tool_name="screen_wos_alert_tool",
-                args={"max_emails": 20, "top_k": 10, "write_memory": False},
-                summary="我将读取默认邮箱中的 WoS Alert，提取候选论文摘要并按你的研究兴趣给出推荐；不会下载 PDF，也不会写入长期记忆。",
+                args={
+                    "max_emails": wos_max_emails,
+                    "top_k": 10,
+                    "use_web": True,
+                    "use_browser": wos_use_browser,
+                    "browser_max_pages": wos_browser_max_pages,
+                    "write_memory": False,
+                },
+                summary=(
+                    f"我将读取默认邮箱中最近最多 {wos_max_emails} 封 WoS Alert 邮件，"
+                    f"{'并尝试进入 WoS 完整结果页补全摘要、DOI 和链接' if wos_use_browser else '只基于邮件内容做初筛'}。"
+                    f"{' 浏览器模式下最多处理  ' + str(wos_browser_max_pages) + ' 页结果。' if wos_use_browser else ''}"
+                    " 这次不会下载 PDF，也不会写入长期记忆。"
+                ),
             )
-            return AgentResponse(f"{action.summary}\n\n回复“确认”后我再执行。", pending_action=action)
+            return AgentResponse(
+                f"{action.summary}\n\n点击确认后我会在后台执行，并持续输出工作日志。",
+                pending_action=action,
+            )
         if intent == "search_memory":
             query = _strip_memory_prefix(text)
             action = PendingAction(
@@ -61,18 +79,18 @@ class AcademicAgent:
                 },
                 summary=f"我会把这条研究偏好写入长期兴趣记忆：{memory_text}",
             )
-            return AgentResponse(f"{action.summary}\n\n回复“确认”后我再写入。", pending_action=action)
+            return AgentResponse(f"{action.summary}\n\n点击确认后我再写入。", pending_action=action)
         if intent == "generate_report":
             action = PendingAction(
                 tool_name="generate_report_tool",
                 args={"title": "学术助手对话报告", "items": [{"title": "用户请求", "summary": text}]},
                 summary="我将把当前请求整理成一份本地 Markdown 报告。",
             )
-            return AgentResponse(f"{action.summary}\n\n回复“确认”后我再生成。", pending_action=action)
+            return AgentResponse(f"{action.summary}\n\n点击确认后我再生成。", pending_action=action)
 
         return AgentResponse(
-            "我可以作为学术助手与你协作：上传 PDF 后我能解读论文；你也可以说“帮我筛选 WoS 邮件”、"
-            "“检索记忆中的 PINN 论文”、或“记住：我关注自适应激活函数”。关键动作我会先说明计划，再等你确认。"
+            "我可以和你一起做几类事：上传 PDF 后解读论文，筛选 WoS 邮件候选，检索历史论文和兴趣记忆，"
+            "以及把阶段结果整理成报告。涉及批量读取、长期记忆或报告生成时，我会先说明计划再等你确认。"
         )
 
     def handle_pdf_upload(self, pdf_path: str, write_memory: bool = False) -> AgentResponse:
@@ -87,10 +105,13 @@ class AcademicAgent:
             },
             summary=(
                 f"我将解读你上传的 PDF：{path.name}。"
-                + (" 解读完成后会把论文摘要和分析结论写入论文记忆。" if write_memory else " 本次不会写入长期记忆。")
+                + (" 解读完成后会把论文摘要和分析结论写入论文记忆。" if write_memory else " 本次先只做解读，不写入长期记忆。")
             ),
         )
-        return AgentResponse(f"{action.summary}\n\n回复“确认”后我再执行。", pending_action=action)
+        return AgentResponse(
+            f"{action.summary}\n\n点击确认后我会在后台执行，并持续输出工作日志。",
+            pending_action=action,
+        )
 
     def execute(self, action: PendingAction) -> AgentResponse:
         try:
@@ -99,15 +120,14 @@ class AcademicAgent:
         except Exception as exc:
             return AgentResponse(f"执行失败：{exc}")
         if result.ok:
-            return AgentResponse(_format_success(result), tool_result=result)
+            return AgentResponse(format_tool_success(result), tool_result=result)
         return AgentResponse(f"{result.message}：{result.error or '未知错误'}", tool_result=result)
 
     def _detect_intent(self, text: str) -> str:
-        lowered = text.lower()
-        if any(key in text for key in ("筛选", "WoS", "wos", "邮件", "Alert", "alert")) and any(
-            key in text for key in ("文献", "论文", "邮件", "WoS", "wos", "Alert", "alert")
-        ):
-            return "screen_wos"
+        lower_text = text.lower()
+        if any(key in lower_text for key in ("wos", "alert")) or ("筛选" in text and "邮件" in text):
+            if any(key in text for key in ("文献", "论文", "邮件", "筛选")):
+                return "screen_wos"
         if any(key in text for key in ("检索", "查找", "搜索", "记忆", "历史")):
             return "search_memory"
         if any(key in text for key in ("记住", "以后", "我关注", "我不关注", "不推荐", "很相关", "不相关")):
@@ -115,6 +135,37 @@ class AcademicAgent:
         if any(key in text for key in ("报告", "总结", "整理成")):
             return "generate_report"
         return "chat"
+
+
+def format_tool_success(result) -> str:
+    if result.tool_name == "screen_wos_alert_tool":
+        recs = result.data.get("recommendations", [])
+        lines = [result.message]
+        for index, item in enumerate(recs[:10], start=1):
+            doi = item.get("doi") or "未获取到 DOI"
+            abstract = item.get("abstract") or "未获取到摘要，建议打开 WoS 记录确认。"
+            lines.append(
+                f"{index}. {item.get('title')}\n"
+                f"   DOI：{doi}\n"
+                f"   作者：{item.get('authors') or '未获取到'}\n"
+                f"   期刊/会议：{item.get('venue') or '未获取到'}\n"
+                f"   推荐理由：{item.get('reason')}\n"
+                f"   摘要：{abstract[:500]}\n"
+                f"   {item.get('manual_pdf_advice')}"
+            )
+        return "\n".join(lines)
+    if result.tool_name == "search_memory_tool":
+        rows = result.data.get("results", [])
+        if not rows:
+            return "没有找到相关记忆。"
+        lines = [result.message]
+        for index, row in enumerate(rows, start=1):
+            lines.append(f"{index}. [{row.get('collection')}] {str(row.get('text', ''))[:220]}")
+        return "\n".join(lines)
+    if result.tool_name == "analyze_pdf_tool":
+        output_dir = result.data.get("output_dir")
+        return f"{result.message}\n输出目录：{output_dir}"
+    return result.message
 
 
 def _looks_like_rejection(text: str) -> bool:
@@ -140,23 +191,18 @@ def _feedback_memory_type(text: str) -> str:
     return "positive_interest"
 
 
-def _format_success(result) -> str:
-    if result.tool_name == "screen_wos_alert_tool":
-        recs = result.data.get("recommendations", [])
-        lines = [result.message]
-        for index, item in enumerate(recs[:10], start=1):
-            doi = f" DOI: {item.get('doi')}" if item.get("doi") else ""
-            lines.append(f"{index}. {item.get('title')}{doi}\n   推荐理由：{item.get('reason')}\n   {item.get('manual_pdf_advice')}")
-        return "\n".join(lines)
-    if result.tool_name == "search_memory_tool":
-        rows = result.data.get("results", [])
-        if not rows:
-            return "没有找到相关记忆。"
-        lines = [result.message]
-        for index, row in enumerate(rows, start=1):
-            lines.append(f"{index}. [{row.get('collection')}] {str(row.get('text', ''))[:220]}")
-        return "\n".join(lines)
-    if result.tool_name == "analyze_pdf_tool":
-        output_dir = result.data.get("output_dir")
-        return f"{result.message}\n输出目录：{output_dir}"
-    return result.message
+def _env_bool(key: str, default: bool) -> bool:
+    raw = os.getenv(key)
+    if raw is None:
+        return default
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _env_int(key: str, default: int) -> int:
+    raw = os.getenv(key)
+    if raw is None:
+        return default
+    try:
+        return int(raw)
+    except ValueError:
+        return default

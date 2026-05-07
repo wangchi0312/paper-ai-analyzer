@@ -1,5 +1,41 @@
 # Worklog
 
+## 2026-05-07
+
+### 改进：React/FastAPI 聊天界面二次打磨
+### 做了什么
+- 停止了当前运行中的 FastAPI 与 Vite 进程，避免一边改代码一边被旧界面干扰。
+- 将前端布局改为三栏：左侧对话导航，中间聊天，右侧配置；把原先暴露工具的左栏改成更接近 ChatGPT 的会话工作区。
+- 把 PDF 上传入口固定并入底部输入区，移除了发送前必须判断的“入库”勾选。
+- WoS 配置文案改为用户可理解的描述，并把“最多邮件数 / 最多页数 / 是否使用浏览器补全”接到真实配置读写。
+- 待确认动作在 WoS 场景中补充了本次执行范围说明，例如最多读取几封邮件、是否用浏览器、最多处理几页。
+- 新增任务取消能力：后端 `JobManager` 支持 cancel flag 与 cooperative cancel；前端在工作日志卡片中提供“中断”按钮。
+- 工作日志卡片增加执行状态展示，取消后会返回“任务已取消”，不再只表现为界面静止。
+- WoS 推荐卡片重新组织展示，突出 DOI、摘要、推荐理由和跳转链接。
+
+### 为什么
+- 用户最新反馈表明，现有界面仍偏调试台：配置位置不合理、WoS 参数看不懂、确认后像卡住、没有中断能力、结果卡片关键信息不够醒目。
+- 这轮目标不是继续堆功能，而是先让聊天式学术助手在主路径上“看得懂、等得住、停得下”。
+
+### 影响文件
+- `.claude/spec.md`
+- `.claude/worklog.md`
+- `paper_analyzer/server/config.py`
+- `paper_analyzer/server/app.py`
+- `paper_analyzer/server/jobs.py`
+- `paper_analyzer/agent/runtime.py`
+- `frontend/src/api.ts`
+- `frontend/src/types.ts`
+- `frontend/src/main.tsx`
+- `frontend/src/styles.css`
+- `tests/test_agent_jobs.py`
+- `tests/test_server_app.py`
+- `tests/test_server_config.py`
+
+### 验证计划
+- 运行后端/前端相关测试，确认配置读写、任务取消、WoS 待确认文案与 API 行为通过。
+- 重新启动 React/FastAPI 页面，检查左中右布局、WoS 参数说明、确认后日志流和中断按钮是否正常。
+
 > 记录规则：按时间倒序追加。每条记录包含「做了什么 / 为什么 / 影响文件 / 验证结果 / 下一步」。
 
 ---
@@ -1733,3 +1769,31 @@
 ### 验证结果
 - `D:\software\anaconda\envs\paper-ai\python.exe -m pytest -q tests -p no:cacheprovider --basetemp data\outputs\test_tmp\pytest_tmp`
 - 结果：`186 passed`。
+
+## 2026-05-07 V2 React/FastAPI 前端重构启动
+
+### 做了什么
+- 记录新版本方向：默认前端切换到 React/FastAPI，Streamlit 退为 legacy/debug。
+- 明确左侧栏改为用户配置和记忆状态，不再暴露工具列表。
+- 明确待确认动作改为后台 job 执行，并通过 SSE/工作日志流输出进度。
+- 明确 WoS 筛选默认走邮箱 + WoS 完整页，并在推荐结果中展示 DOI、摘要、作者、期刊、链接和复制 DOI。
+
+### 为什么
+- 第一版 Agent 骨架可运行，但交互仍像调试台：上传入口位置不便、确认执行后无进度反馈、WoS 推荐信息不足。
+- 用户希望使用更成熟的前端框架承载聊天式学术助手体验。
+
+### 影响文件计划
+- .claude/spec.md
+- .claude/worklog.md
+- README.md
+- pyproject.toml
+- requirements.txt
+- paper_analyzer/agent/
+- paper_analyzer/server/
+- frontend/
+- tests/test_server_*.py
+
+### 验证计划
+- 后端配置、chat、upload、job 状态和 SSE 相关单元测试。
+- Agent/WoS 推荐结构化输出测试。
+- 全量回归测试保持通过。
