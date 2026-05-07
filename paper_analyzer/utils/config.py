@@ -150,7 +150,8 @@ def load_email_config(email_provider: str | None = None) -> EmailConfig:
     if not auth_code:
         raise ValueError("缺少 EMAIL_AUTH_CODE (或 QQ_EMAIL_AUTH_CODE)，请在 .env 中配置。")
 
-    provider_key = (email_provider or os.getenv("EMAIL_PROVIDER") or _detect_email_provider(address)).lower()
+    raw_provider = (email_provider or os.getenv("EMAIL_PROVIDER") or "").strip().lower()
+    provider_key = _detect_email_provider(address) if raw_provider in {"", "auto"} else raw_provider
     provider_config = EMAIL_PROVIDER_CONFIGS.get(provider_key)
     if not provider_config:
         raise ValueError(f"不支持的邮箱运营商：{provider_key}，支持：{list(EMAIL_PROVIDER_CONFIGS.keys())}")

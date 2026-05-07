@@ -119,8 +119,9 @@ def test_load_email_config_generic_env(monkeypatch):
 def test_load_email_config_fallback_old_vars(monkeypatch):
     monkeypatch.setenv("QQ_EMAIL", "old@qq.com")
     monkeypatch.setenv("QQ_EMAIL_AUTH_CODE", "old_auth")
-    monkeypatch.delenv("EMAIL_ADDRESS", raising=False)
-    monkeypatch.delenv("EMAIL_AUTH_CODE", raising=False)
+    monkeypatch.setenv("EMAIL_ADDRESS", "")
+    monkeypatch.setenv("EMAIL_AUTH_CODE", "")
+    monkeypatch.delenv("EMAIL_PROVIDER", raising=False)
     import paper_analyzer.utils.config as config_mod
     config_mod._loaded = False
 
@@ -138,6 +139,30 @@ def test_load_email_config_manual_provider(monkeypatch):
     cfg = config_mod.load_email_config(email_provider="outlook")
     assert cfg.imap_host == "outlook.office365.com"
     assert cfg.provider_key == "outlook"
+
+
+def test_load_email_config_auto_provider_from_env(monkeypatch):
+    monkeypatch.setenv("EMAIL_ADDRESS", "2017711085@qq.com")
+    monkeypatch.setenv("EMAIL_AUTH_CODE", "auth")
+    monkeypatch.setenv("EMAIL_PROVIDER", "auto")
+    import paper_analyzer.utils.config as config_mod
+    config_mod._loaded = False
+
+    cfg = config_mod.load_email_config()
+    assert cfg.provider_key == "qq"
+    assert cfg.imap_host == "imap.qq.com"
+
+
+def test_load_email_config_auto_provider_argument(monkeypatch):
+    monkeypatch.setenv("EMAIL_ADDRESS", "user@gmail.com")
+    monkeypatch.setenv("EMAIL_AUTH_CODE", "auth")
+    monkeypatch.setenv("EMAIL_PROVIDER", "outlook")
+    import paper_analyzer.utils.config as config_mod
+    config_mod._loaded = False
+
+    cfg = config_mod.load_email_config(email_provider="auto")
+    assert cfg.provider_key == "gmail"
+    assert cfg.imap_host == "imap.gmail.com"
 
 
 def test_load_email_config_missing_address():

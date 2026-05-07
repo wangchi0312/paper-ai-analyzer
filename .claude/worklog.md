@@ -2,6 +2,26 @@
 
 ## 2026-05-07
 
+### 修复：`EMAIL_PROVIDER=auto` 导致 WoS 邮箱读取失败
+### 做了什么
+- 根据用户指出的真实报错“`不支持的邮箱运营商：auto`”回看输出链路，确认失败点在邮箱配置加载，而不是 WoS 页面抓取。
+- 定位到 `paper_analyzer/utils/config.py` 的 `load_email_config()`：它会把 `.env` 中的 `EMAIL_PROVIDER=auto` 原样当作 provider key，随后查不到 IMAP 配置而直接抛错。
+- 准备把 `auto` 改成哨兵值处理：当显式 provider 为空或为 `auto` 时，改用邮箱地址自动识别运营商。
+- 同时补一条回归测试，覆盖 `EMAIL_PROVIDER=auto` 的真实使用场景。
+### 为什么
+- 前端把 provider 默认显示成 `auto` 是合理的产品语义，问题在于后端没有把它解释成“自动识别”。
+- 这个 bug 会让 WoS 候选筛选在第一步读邮箱时就失败，用户看到的只是“筛选失败”，但真正坏掉的是配置解释逻辑。
+### 影响文件
+- `.claude/spec.md`
+- `.claude/worklog.md`
+- `paper_analyzer/utils/config.py`
+- `tests/test_config.py`
+### 验证计划
+- 运行 `tests/test_config.py`，确认 `EMAIL_PROVIDER=auto` 能正确解析到具体 IMAP 配置。
+### 验证结果
+- `D:\software\anaconda\envs\paper-ai\python.exe -m pytest -q tests/test_config.py -p no:cacheprovider --basetemp data\outputs\test_tmp\pytest_tmp_email_auto`
+- 结果：`17 passed`
+
 ### 修复：右侧 WoS 配置未及时作用于当前对话
 ### 做了什么
 - 根据用户截图定位到一个交互层 bug：右侧把 WoS 邮件数和页数改成 2 后，待确认动作和后台日志仍然使用旧值 20。
