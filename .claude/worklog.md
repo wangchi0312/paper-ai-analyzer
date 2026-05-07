@@ -2,6 +2,33 @@
 
 ## 2026-05-07
 
+### 改进：推荐链接、DOI 历史补全和记忆写入口
+### 做了什么
+- 针对用户反馈“打开 WoS 不可用 / 打开记录含义不清 / 仍有 DOI 未获取 / 记忆一直为 0”，准备继续修订推荐卡片的行为。
+- WoS 推荐卡片外链改为优先打开论文 Full Record，并把文案改成“打开 WoS 记录”；只有缺少 Full Record 链接时才退回“打开 WoS 结果页”。
+- DOI 补全新增本地历史论文库优先级：同标题历史记录已有 DOI 时直接复用，并标记 DOI 来源为本地历史论文库。
+- 前端推荐卡片新增“相关 / 不相关 / 记住论文”入口，分别写入兴趣记忆或论文记忆，写入后刷新右侧记忆计数。
+### 为什么
+- 用户下载论文时真正需要的是 DOI 和具体论文记录页；当前按钮文案和目标链接不够直观。
+- 同一篇论文历史轮次已经补到 DOI 时，不应因为本轮公开源暂时没命中而再次显示“未获取到”。
+- 长期记忆虽然有后端能力，但没有自然 UI 入口，导致用户看到计数一直是 0。
+### 影响文件计划
+- `.claude/spec.md`
+- `.claude/worklog.md`
+- `paper_analyzer/agent/tools.py`
+- `paper_analyzer/server/app.py`
+- `frontend/src/api.ts`
+- `frontend/src/types.ts`
+- `frontend/src/main.tsx`
+- `frontend/src/styles.css`
+- `tests/test_wos_recommendations.py`
+- `tests/test_server_app.py`
+### 验证结果
+- `D:\software\anaconda\envs\paper-ai\python.exe -m pytest -q tests/test_wos_recommendations.py tests/test_server_app.py tests/test_agent_memory.py -p no:cacheprovider --basetemp data\outputs\test_tmp\pytest_tmp_memory_links`
+- 结果：`12 passed`
+- `npm run build` in `frontend/`
+- 结果：TypeScript 与 Vite 构建通过
+
 ### 改进：对推荐结果做定向 DOI 补全并展示来源
 ### 做了什么
 - 根据用户反馈“WoS 肯定提供 DOI，为什么推荐卡片里显示未获取到”，重新核对本次抓取产物与历史运行产物。

@@ -23,6 +23,17 @@ export type ToolResult = {
   display_message?: string;
 };
 
+export type MemoryStats = {
+  backend: string;
+  paper_corpus: number;
+  interest_memory: number;
+};
+
+export type MemoryWriteResponse = {
+  memory_id: string;
+  memory: MemoryStats;
+};
+
 export type Job = {
   job_id: string;
   action: PendingAction;

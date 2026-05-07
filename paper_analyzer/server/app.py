@@ -41,6 +41,20 @@ class JobRequest(BaseModel):
     action: dict[str, Any]
 
 
+class InterestMemoryRequest(BaseModel):
+    text: str
+    memory_type: str = "positive_interest"
+    evidence_source: str = "wos_feedback"
+    weight: float = 0.9
+    confidence: float = 0.85
+    metadata: dict[str, Any] | None = None
+
+
+class PaperMemoryRequest(BaseModel):
+    text: str
+    metadata: dict[str, Any] | None = None
+
+
 def create_app() -> FastAPI:
     app = FastAPI(title="Academic Agent API")
     app.add_middleware(
@@ -74,6 +88,23 @@ def create_app() -> FastAPI:
     @app.get("/api/memory/stats")
     def memory_stats() -> dict[str, Any]:
         return memory.stats()
+
+    @app.post("/api/memory/interest")
+    def add_interest_memory(payload: InterestMemoryRequest) -> dict[str, Any]:
+        item_id = memory.add_interest(
+            text=payload.text,
+            memory_type=payload.memory_type,
+            evidence_source=payload.evidence_source,
+            weight=payload.weight,
+            confidence=payload.confidence,
+            metadata=payload.metadata,
+        )
+        return {"memory_id": item_id, "memory": memory.stats()}
+
+    @app.post("/api/memory/paper")
+    def add_paper_memory(payload: PaperMemoryRequest) -> dict[str, Any]:
+        item_id = memory.add_paper(text=payload.text, metadata=payload.metadata)
+        return {"memory_id": item_id, "memory": memory.stats()}
 
     @app.post("/api/chat")
     def chat(payload: ChatRequest) -> dict[str, Any]:

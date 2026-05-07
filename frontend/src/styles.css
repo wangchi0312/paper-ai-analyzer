@@ -90,7 +90,8 @@ a {
 .job-stop,
 .conversation-chip,
 .copy,
-.rec-actions a {
+.rec-actions a,
+.rec-actions button {
   border: 0;
   border-radius: 8px;
   cursor: pointer;
@@ -326,11 +327,14 @@ a {
 }
 
 .copy,
-.rec-actions a {
+.rec-actions a,
+.rec-actions button {
   padding: 5px 8px;
   border: 1px solid #cbd5e1;
   background: #fff;
   color: #334155;
+  font: inherit;
+  cursor: pointer;
 }
 
 .rec-actions {

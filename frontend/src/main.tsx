@@ -17,7 +17,17 @@ import {
   Square,
   X,
 } from "lucide-react";
-import { cancelJob, getConfig, openJobEvents, saveConfig, sendMessage, startJob, uploadPdf } from "./api";
+import {
+  cancelJob,
+  getConfig,
+  openJobEvents,
+  rememberRecommendationInterest,
+  rememberRecommendationPaper,
+  saveConfig,
+  sendMessage,
+  startJob,
+  uploadPdf,
+} from "./api";
 import type { AgentResponse, AppConfig, ChatMessage, Job, PendingAction, Recommendation, ToolResult } from "./types";
 import "./styles.css";
 
@@ -235,6 +245,26 @@ function App() {
     }
   }
 
+  async function handleRememberInterest(item: Recommendation, memoryType: "positive_interest" | "negative_interest") {
+    try {
+      const response = await rememberRecommendationInterest(item, memoryType);
+      setConfig((current) => (current ? { ...current, memory: response.memory } : current));
+      appendAssistant(memoryType === "positive_interest" ? "已记住：这类论文与你的方向相关。" : "已记住：这类论文后续降低推荐优先级。");
+    } catch (error) {
+      appendAssistant(`写入兴趣记忆失败：${(error as Error).message}`);
+    }
+  }
+
+  async function handleRememberPaper(item: Recommendation) {
+    try {
+      const response = await rememberRecommendationPaper(item);
+      setConfig((current) => (current ? { ...current, memory: response.memory } : current));
+      appendAssistant("已把这篇论文加入论文记忆。");
+    } catch (error) {
+      appendAssistant(`写入论文记忆失败：${(error as Error).message}`);
+    }
+  }
+
   return (
     <div className="app-shell">
       <aside className="chat-rail">
@@ -286,6 +316,8 @@ function App() {
               message={message}
               onConfirm={confirmAction}
               onCancelJob={handleCancelJob}
+              onRememberInterest={handleRememberInterest}
+              onRememberPaper={handleRememberPaper}
             />
           ))}
           <div ref={bottomRef} />
@@ -496,10 +528,14 @@ function MessageView({
   message,
   onConfirm,
   onCancelJob,
+  onRememberInterest,
+  onRememberPaper,
 }: {
   message: ChatMessage;
   onConfirm: (messageId: string, action: PendingAction) => void;
   onCancelJob: (messageId: string, jobId: string) => void;
+  onRememberInterest: (item: Recommendation, memoryType: "positive_interest" | "negative_interest") => void;
+  onRememberPaper: (item: Recommendation) => void;
 }) {
   return (
     <article className={`message ${message.role}`}>
@@ -519,7 +555,13 @@ function MessageView({
           </div>
         )}
         {message.job && <JobLog messageId={message.id} job={message.job} onCancelJob={onCancelJob} />}
-        {message.recommendations && <RecommendationList items={message.recommendations} />}
+        {message.recommendations && (
+          <RecommendationList
+            items={message.recommendations}
+            onRememberInterest={onRememberInterest}
+            onRememberPaper={onRememberPaper}
+          />
+        )}
       </div>
     </article>
   );
@@ -561,7 +603,15 @@ function JobLog({
   );
 }
 
-function RecommendationList({ items }: { items: Recommendation[] }) {
+function RecommendationList({
+  items,
+  onRememberInterest,
+  onRememberPaper,
+}: {
+  items: Recommendation[];
+  onRememberInterest: (item: Recommendation, memoryType: "positive_interest" | "negative_interest") => void;
+  onRememberPaper: (item: Recommendation) => void;
+}) {
   if (!items.length) return null;
   return (
     <div className="recommendations">
@@ -605,10 +655,16 @@ function RecommendationList({ items }: { items: Recommendation[] }) {
           </div>
 
           <div className="rec-actions">
-            {item.wos_summary_url && (
+            {item.link && (
+              <a href={item.link} target="_blank" rel="noreferrer">
+                <ExternalLink size={14} />
+                打开 WoS 记录
+              </a>
+            )}
+            {!item.link && item.wos_summary_url && (
               <a href={item.wos_summary_url} target="_blank" rel="noreferrer">
                 <ExternalLink size={14} />
-                打开 WoS
+                打开 WoS 结果页
               </a>
             )}
             {item.publisher_link && (
@@ -617,12 +673,9 @@ function RecommendationList({ items }: { items: Recommendation[] }) {
                 打开期刊页
               </a>
             )}
-            {item.link && !item.wos_summary_url && (
-              <a href={item.link} target="_blank" rel="noreferrer">
-                <ExternalLink size={14} />
-                打开记录
-              </a>
-            )}
+            <button type="button" onClick={() => onRememberInterest(item, "positive_interest")}>相关</button>
+            <button type="button" onClick={() => onRememberInterest(item, "negative_interest")}>不相关</button>
+            <button type="button" onClick={() => onRememberPaper(item)}>记住论文</button>
           </div>
 
           <p className="advice">{item.manual_pdf_advice}</p>
@@ -650,6 +703,8 @@ function labelDoiSource(item: Recommendation): string {
       return "OpenAlex";
     case "semantic_scholar":
       return "Semantic Scholar";
+    case "local_library":
+      return "历史论文库";
     default:
       return "未知来源";
   }

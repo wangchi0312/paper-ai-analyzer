@@ -19,8 +19,9 @@ from paper_analyzer.llm.analyzer import Analyzer
 from paper_analyzer.pdf.parser import extract_text, extract_title
 from paper_analyzer.pdf.text_selector import select_representative_text
 from paper_analyzer.report.writer import write_outputs
+from paper_analyzer.utils.text import normalize_title_key
 from paper_analyzer.utils.text import emit_progress
-from pipeline.fetch_papers import fetch_papers
+from pipeline.fetch_papers import fetch_papers, load_paper_library
 
 
 @dataclass
@@ -385,6 +386,7 @@ def _enrich_recommendation_dois(
         return
 
     emit_progress(progress_callback, f"推荐结果中有 {len(missing)} 篇缺 DOI，开始定向补全")
+    library_by_title = _paper_library_by_title()
 
     browser_session: WosBrowserSession | None = None
     browser_context: WosBrowserSession | None = None
@@ -399,6 +401,10 @@ def _enrich_recommendation_dois(
 
         for paper in missing:
             title = paper.title or "未命名论文"
+            if _enrich_from_local_library(paper, library_by_title):
+                emit_progress(progress_callback, f"已从历史论文库补到 DOI：{title}")
+                continue
+
             if browser_session is not None and paper.link and "full-record" in (paper.link or "").lower():
                 before_doi = paper.doi
                 try:
@@ -438,12 +444,45 @@ def _recommendation_doi_source(paper: FetchedPaper) -> str:
     methods = set(filter(None, (paper.fetch_method or "").split("+")))
     if "full_record" in methods:
         return "full_record"
+    if "local_library" in methods:
+        return "local_library"
     for source in ("crossref", "openalex", "semantic_scholar"):
         if source in methods:
             return source
     if methods & {"wos_browser", "web", "email"}:
         return "wos"
     return "unknown"
+
+
+def _paper_library_by_title() -> dict[str, FetchedPaper]:
+    try:
+        library = load_paper_library()
+    except Exception:
+        return {}
+    by_title: dict[str, FetchedPaper] = {}
+    for paper in library:
+        key = normalize_title_key(paper.title)
+        if not key or not (paper.doi or "").strip():
+            continue
+        current = by_title.get(key)
+        if current is None or len((paper.abstract or "")) > len((current.abstract or "")):
+            by_title[key] = paper
+    return by_title
+
+
+def _enrich_from_local_library(paper: FetchedPaper, library_by_title: dict[str, FetchedPaper]) -> bool:
+    match = library_by_title.get(normalize_title_key(paper.title))
+    if match is None or not (match.doi or "").strip():
+        return False
+    paper.doi = match.doi
+    if match.authors and not paper.authors:
+        paper.authors = match.authors
+    if match.venue and not paper.venue:
+        paper.venue = match.venue
+    if match.publisher_link and not paper.publisher_link:
+        paper.publisher_link = match.publisher_link
+    _append_fetch_method_tag(paper, "local_library")
+    return True
 
 
 def _paper_from_analysis(title, pdf_path, abstract, full_text, analysis):

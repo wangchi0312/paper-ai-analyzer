@@ -77,6 +77,48 @@ def test_screen_wos_alert_enriches_missing_doi_from_metadata(monkeypatch, tmp_pa
     assert rec["doi_status"] == "found"
 
 
+def test_screen_wos_alert_enriches_missing_doi_from_local_library(monkeypatch, tmp_path):
+    monkeypatch.setattr(
+        "paper_analyzer.agent.tools.fetch_papers",
+        lambda **kwargs: [
+            FetchedPaper(
+                title="Useful PINN Paper",
+                abstract="This abstract explains why the method is useful for physics informed neural networks.",
+                doi=None,
+                fetch_method="wos_browser",
+            )
+        ],
+    )
+    monkeypatch.setattr(
+        "paper_analyzer.agent.tools.load_paper_library",
+        lambda: [
+            FetchedPaper(
+                title="Useful PINN Paper",
+                abstract="older abstract",
+                doi="10.7777/from-library",
+                authors="Alice; Bob",
+                venue="Library Journal",
+                fetch_method="wos_browser+crossref",
+            )
+        ],
+    )
+    monkeypatch.setattr("paper_analyzer.agent.tools.enrich_paper_metadata", lambda paper: paper)
+
+    result = screen_wos_alert_tool(
+        memory=AcademicMemory(str(tmp_path / "memory")),
+        top_k=1,
+        use_web=True,
+        use_browser=False,
+        profile_path=str(tmp_path / "missing.npy"),
+    )
+
+    rec = result.data["recommendations"][0]
+    assert rec["doi"] == "10.7777/from-library"
+    assert rec["authors"] == "Alice; Bob"
+    assert rec["venue"] == "Library Journal"
+    assert rec["doi_source"] == "local_library"
+
+
 def test_screen_wos_alert_enriches_missing_doi_from_full_record(monkeypatch, tmp_path):
     monkeypatch.setattr(
         "paper_analyzer.agent.tools.fetch_papers",

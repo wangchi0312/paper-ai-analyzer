@@ -60,3 +60,38 @@ def test_server_can_cancel_job():
     assert response.status_code == 200
     cancel = client.post(f"/api/jobs/{response.json()['job_id']}/cancel")
     assert cancel.status_code == 200
+
+
+def test_server_can_add_interest_memory():
+    client = TestClient(create_app())
+
+    response = client.post(
+        "/api/memory/interest",
+        json={
+            "text": "我关注 PINN 求解 PDE",
+            "memory_type": "positive_interest",
+            "evidence_source": "wos_feedback",
+        },
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["memory_id"]
+    assert data["memory"]["interest_memory"] >= 1
+
+
+def test_server_can_add_paper_memory():
+    client = TestClient(create_app())
+
+    response = client.post(
+        "/api/memory/paper",
+        json={
+            "text": "A paper about PINN",
+            "metadata": {"title": "PINN Paper", "doi": "10.1/test"},
+        },
+    )
+
+    assert response.status_code == 200
+    data = response.json()
+    assert data["memory_id"]
+    assert data["memory"]["paper_corpus"] >= 1
